@@ -2,6 +2,7 @@ from OpenSSL import crypto, SSL  # pip3 install pyOpenSSL
 from py509.extensions import SubjectAltName, AuthorityInformationAccess, SubjectKeyIdentifier, AuthorityKeyIdentifier
 import socket
 import datetime
+from .ocsp_check import OcspChecker
 
 
 class CertChecker:
@@ -18,8 +19,7 @@ class CertChecker:
     def load_pem_from_file(self, certfile):
         st_cert = open(certfile, 'rt').read()
 
-        c = crypto
-        self.cert = c.load_certificate(c.FILETYPE_PEM, st_cert)
+        self.cert = crypto.load_certificate(crypto.FILETYPE_PEM, st_cert)
         self._process_extensions()
 
     def load_pem_from_host(self, hostname, port):
@@ -29,6 +29,7 @@ class CertChecker:
         #SSL._create_default_https_context = SSL._create_unverified_context
         ctx = SSL.Context(SSL.TLSv1_2_METHOD)
         tls_version = None
+        ocsp_assertion = None
 
         def _info_cb(conn, where_at, return_code):
             #print("_info_cb: %d" % where_at)
@@ -43,21 +44,28 @@ class CertChecker:
 
             return True
 
+        def _ocsp_cb(conn, assertion, data):
+            nonlocal ocsp_assertion
+            ocsp_assertion = assertion
+            #print("_ocsp_cb: %d" % len(assertion))
+            #print(assertion)
+
+            return True
+
         ctx.set_verify(SSL.VERIFY_PEER, _connection_cb)
         ctx.set_info_callback(_info_cb)
+        ctx.set_ocsp_client_callback(callback=_ocsp_cb, data=None)
 
-        # Set up client
-        sock = SSL.Connection(ctx, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-        sock.connect((hostname, port))
-        # NOTE: Need to actually send something to trigger a connection to be established
-        try:
-            sock.send('')
-        except SSL.Error:
-            # We totally expect this to fail. We intentionally abort the connection
-            pass
+        tcp_conn = socket.create_connection((hostname, port))
+        ssl_conn = SSL.Connection(ctx, tcp_conn)
+        ssl_conn.set_tlsext_host_name(hostname.encode())
+        ssl_conn.request_ocsp()
+        ssl_conn.set_connect_state()
+        ssl_conn.do_handshake()
 
         if self.cert:
-            #print("tls_version: %s" % tls_version)
+            print("TLS-version used in connection: %s" % tls_version)
+            print("OCSP assertion length: %d" % len(ocsp_assertion))
             self._process_extensions()
 
     def _process_extensions(self):
@@ -124,3 +132,31 @@ class CertChecker:
                 ca_issuer = None
             print("    Issuer: %s" % ca_issuer)
             print("    OCSP: %s" % ocsp_uri)
+
+        self._verify_ocsp()
+
+    def _verify_ocsp(self):
+        cert_bytes = crypto.dump_certificate(crypto.FILETYPE_ASN1, self.cert)
+        issuer_cert_bytes = self._get_issuer_cert()
+
+        ocsp_uri = self.aia_ext.ocsp
+        if ocsp_uri:
+            ocsp_uri = ocsp_uri.decode('ascii')
+        else:
+            raise ValueError("Cannot do get OCSP URI! Cert has no URL in OCSP.")
+
+        ocsp = OcspChecker(cert_bytes, issuer_cert_bytes)
+        ocsp.verify(ocsp_uri)
+
+    def _get_issuer_cert(self):
+        ca_issuer = self.aia_ext.ca_issuer
+        if ca_issuer:
+            ca_issuer = ca_issuer.decode('ascii')
+        else:
+            raise ValueError("Cannot do get issuer certificate! Cert has no URL in AIA.")
+
+        issuer_cert_bytes = OcspChecker.load_issuer_cert_from_url(ca_issuer)
+        issuer_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, issuer_cert_bytes)
+        issuer_cert_bytes = crypto.dump_certificate(crypto.FILETYPE_ASN1, issuer_cert)
+
+        return issuer_cert_bytes
