@@ -136,19 +136,17 @@ class CertChecker:
         self._verify_ocsp()
 
     def _verify_ocsp(self):
-        cert_bytes = crypto.dump_certificate(crypto.FILETYPE_ASN1, self.cert)
-        issuer_cert_bytes = self._get_issuer_cert()
-
         ocsp_uri = self.aia_ext.ocsp
         if ocsp_uri:
             ocsp_uri = ocsp_uri.decode('ascii')
         else:
             raise ValueError("Cannot do get OCSP URI! Cert has no URL in OCSP.")
 
-        ocsp = OcspChecker(cert_bytes, issuer_cert_bytes)
+        issuer_cert = self._load_issuer_cert()
+        ocsp = OcspChecker(self.cert, issuer_cert)
         ocsp.verify(ocsp_uri)
 
-    def _get_issuer_cert(self):
+    def _load_issuer_cert(self):
         ca_issuer = self.aia_ext.ca_issuer
         if ca_issuer:
             ca_issuer = ca_issuer.decode('ascii')
@@ -157,6 +155,5 @@ class CertChecker:
 
         issuer_cert_bytes = OcspChecker.load_issuer_cert_from_url(ca_issuer)
         issuer_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, issuer_cert_bytes)
-        issuer_cert_bytes = crypto.dump_certificate(crypto.FILETYPE_ASN1, issuer_cert)
 
-        return issuer_cert_bytes
+        return issuer_cert
