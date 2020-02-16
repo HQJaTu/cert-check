@@ -18,6 +18,15 @@ def main():
     cc = CertChecker()
     if args.file:
         cc.load_pem_from_file(args.file)
+    elif args.connect:
+        host_parts = args.connect.split(':')
+        if len(host_parts) == 1:
+            host_parts.append(443)
+        elif len(host_parts) == 2:
+            host_parts[1] = int(443)
+        else:
+            raise ValueError("Don't understand --connect %s!" % args.connect)
+        cc.load_pem_from_host(host_parts[0], host_parts[1])
 
     if not cc.has_cert():
         raise ValueError("Cannot proceed, no cert!")

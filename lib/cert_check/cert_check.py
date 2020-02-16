@@ -1,5 +1,6 @@
-from OpenSSL import crypto  # pip3 install pyOpenSSL
+from OpenSSL import crypto, SSL  # pip3 install pyOpenSSL
 from py509.extensions import SubjectAltName, AuthorityInformationAccess, SubjectKeyIdentifier, AuthorityKeyIdentifier
+import socket
 import datetime
 
 
@@ -20,6 +21,44 @@ class CertChecker:
         c = crypto
         self.cert = c.load_certificate(c.FILETYPE_PEM, st_cert)
         self._process_extensions()
+
+    def load_pem_from_host(self, hostname, port):
+        self.cert = None
+
+        # Initialize context
+        #SSL._create_default_https_context = SSL._create_unverified_context
+        ctx = SSL.Context(SSL.TLSv1_2_METHOD)
+        tls_version = None
+
+        def _info_cb(conn, where_at, return_code):
+            #print("_info_cb: %d" % where_at)
+            pass
+
+        def _connection_cb(conn, cert, errnum, depth, ok):
+            nonlocal tls_version
+            #print("_connection_cb, cert: %s" % cert)
+            tls_version = conn.get_protocol_version_name()
+            #print("_connection_cb, tls_version: %s" % tls_version)
+            self.cert = cert
+
+            return True
+
+        ctx.set_verify(SSL.VERIFY_PEER, _connection_cb)
+        ctx.set_info_callback(_info_cb)
+
+        # Set up client
+        sock = SSL.Connection(ctx, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+        sock.connect((hostname, port))
+        # NOTE: Need to actually send something to trigger a connection to be established
+        try:
+            sock.send('')
+        except SSL.Error:
+            # We totally expect this to fail. We intentionally abort the connection
+            pass
+
+        if self.cert:
+            #print("tls_version: %s" % tls_version)
+            self._process_extensions()
 
     def _process_extensions(self):
         # Note: Using OpenSSL we can extract the bytes for each extension. What we cannot do is decode the ASN-data.
@@ -73,7 +112,15 @@ class CertChecker:
 
         if self.aia_ext:
             print("Authority Information Access (AIA)")
-            ocsp_uri = self.aia_ext.ocsp.decode('ascii')
-            ca_issuer = self.aia_ext.ca_issuer.decode('ascii')
+            ocsp_uri = self.aia_ext.ocsp
+            if ocsp_uri:
+                ocsp_uri = ocsp_uri.decode('ascii')
+            else:
+                ocsp_uri = None
+            ca_issuer = self.aia_ext.ca_issuer
+            if ca_issuer:
+                ca_issuer = ca_issuer.decode('ascii')
+            else:
+                ca_issuer = None
             print("    Issuer: %s" % ca_issuer)
             print("    OCSP: %s" % ocsp_uri)
