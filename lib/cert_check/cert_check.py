@@ -5,6 +5,8 @@ import datetime
 
 class CertChecker:
     cert = None
+    aia_ext = None
+    alt_name_ext = None
 
     def __init__(self):
         self.cert = None
@@ -17,6 +19,20 @@ class CertChecker:
 
         c = crypto
         self.cert = c.load_certificate(c.FILETYPE_PEM, st_cert)
+        self._process_extensions()
+
+    def _process_extensions(self):
+        # Note: Using OpenSSL we can extract the bytes for each extension. What we cannot do is decode the ASN-data.
+        # Note 2: py509 has capability of decoding ASN-information for known extensions.
+        extension_count = self.cert.get_extension_count()
+        for ext_idx in range(extension_count):
+            ext = self.cert.get_extension(ext_idx)
+            ext_name = ext.get_short_name().decode('ascii')
+            # print("XXX %d: %s" % (ext_idx, ext_name))
+            if ext_name == 'authorityInfoAccess':
+                self.aia_ext = AuthorityInformationAccess(ext.get_data())
+            elif ext_name == 'subjectAltName':
+                self.alt_name_ext = SubjectAltName(ext.get_data())
 
     def verify(self):
         if not self.cert:
@@ -46,24 +62,18 @@ class CertChecker:
         print("Serial #: %s" % serial_nro)
         print("Signature algo: %s" % sig_algo)
 
-        extension_count = self.cert.get_extension_count()
-        for ext_idx in range(extension_count):
-            if not ext_idx in [2, 7]:
-                continue
-            ext = self.cert.get_extension(ext_idx)
-            ext_name = ext.get_short_name().decode('ascii')
-            print("%d: %s" % (ext_idx, ext_name))
-            if ext_name == 'authorityInfoAccess':
-                aia = AuthorityInformationAccess(ext.get_data())
-                ocsp_uri = aia.ocsp.decode('ascii')
-                ca_issuer = aia.ca_issuer.decode('ascii')
-                print("    Issuer: %s" % ca_issuer)
-                print("    OCSP: %s" % ocsp_uri)
-            elif ext_name == 'subjectAltName':
-                altName = SubjectAltName(ext.get_data())
-                if altName.dns:
-                    print("    DNS: %s" % ', '.join(altName.dns))
-                if altName.ips:
-                    print(altName.ips)
-                if altName.uris:
-                    print(altName.uris)
+        if self.alt_name_ext:
+            print("Alternate names")
+            if self.alt_name_ext.dns:
+                print("    DNS-names: %s" % ', '.join(self.alt_name_ext.dns))
+            if self.alt_name_ext.ips:
+                print("    IP-addresses: %s" % ', '.join(self.alt_name_ext.ips))
+            if self.alt_name_ext.uris:
+                print("    URIs: %s" % ', '.join(self.alt_name_ext.uris))
+
+        if self.aia_ext:
+            print("Authority Information Access (AIA)")
+            ocsp_uri = self.aia_ext.ocsp.decode('ascii')
+            ca_issuer = self.aia_ext.ca_issuer.decode('ascii')
+            print("    Issuer: %s" % ca_issuer)
+            print("    OCSP: %s" % ocsp_uri)
