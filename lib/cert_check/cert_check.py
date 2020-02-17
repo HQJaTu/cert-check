@@ -1,5 +1,7 @@
 from OpenSSL import crypto, SSL  # pip3 install pyOpenSSL
-from py509.extensions import SubjectAltName, AuthorityInformationAccess, SubjectKeyIdentifier, AuthorityKeyIdentifier
+from cryptography.x509 import DNSName, IPAddress, UniformResourceIdentifier, AccessDescription, ObjectIdentifier
+from cryptography.x509 import extensions as x509_extensions
+from cryptography.x509 import oid as x509_oid
 import socket
 import datetime
 from .ocsp_check import OcspChecker
@@ -26,7 +28,6 @@ class CertChecker:
         self.cert = None
 
         # Initialize context
-        #SSL._create_default_https_context = SSL._create_unverified_context
         ctx = SSL.Context(SSL.TLSv1_2_METHOD)
         tls_version = None
         ocsp_assertion = None
@@ -69,17 +70,10 @@ class CertChecker:
             self._process_extensions()
 
     def _process_extensions(self):
-        # Note: Using OpenSSL we can extract the bytes for each extension. What we cannot do is decode the ASN-data.
-        # Note 2: py509 has capability of decoding ASN-information for known extensions.
-        extension_count = self.cert.get_extension_count()
-        for ext_idx in range(extension_count):
-            ext = self.cert.get_extension(ext_idx)
-            ext_name = ext.get_short_name().decode('ascii')
-            # print("XXX %d: %s" % (ext_idx, ext_name))
-            if ext_name == 'authorityInfoAccess':
-                self.aia_ext = AuthorityInformationAccess(ext.get_data())
-            elif ext_name == 'subjectAltName':
-                self.alt_name_ext = SubjectAltName(ext.get_data())
+        cert = self.cert.to_cryptography()
+        extensions = x509_extensions.Extensions(cert.extensions)
+        self.aia_ext = extensions.get_extension_for_class(x509_extensions.AuthorityInformationAccess)
+        self.alt_name_ext = extensions.get_extension_for_class(x509_extensions.SubjectAlternativeName)
 
     def verify(self):
         if not self.cert:
@@ -110,26 +104,37 @@ class CertChecker:
         print("Signature algo: %s" % sig_algo)
 
         if self.alt_name_ext:
-            print("Alternate names")
-            if self.alt_name_ext.dns:
-                print("    DNS-names: %s" % ', '.join(self.alt_name_ext.dns))
-            if self.alt_name_ext.ips:
-                print("    IP-addresses: %s" % ', '.join(self.alt_name_ext.ips))
-            if self.alt_name_ext.uris:
-                print("    URIs: %s" % ', '.join(self.alt_name_ext.uris))
+            dns_names = []
+            ip_addresses = []
+            urls = []
+            for alt_name in self.alt_name_ext.value:
+                if isinstance(alt_name, DNSName):
+                    dns_names.append(alt_name.value)
+                elif isinstance(alt_name, IPAddress):
+                    ip_addresses.append(alt_name.value)
+                elif isinstance(alt_name, UniformResourceIdentifier):
+                    urls.append(alt_name.value)
+
+            if dns_names or dns_names or urls:
+                print("Alternate names:")
+            if dns_names:
+                print("    DNS-names: %s" % ', '.join(dns_names))
+            if ip_addresses:
+                print("    IP-addresses: %s" % ', '.join(ip_addresses))
+            if urls:
+                print("    URIs: %s" % ', '.join(urls))
 
         if self.aia_ext:
-            print("Authority Information Access (AIA)")
-            ocsp_uri = self.aia_ext.ocsp
-            if ocsp_uri:
-                ocsp_uri = ocsp_uri.decode('ascii')
-            else:
-                ocsp_uri = None
-            ca_issuer = self.aia_ext.ca_issuer
-            if ca_issuer:
-                ca_issuer = ca_issuer.decode('ascii')
-            else:
-                ca_issuer = None
+            ocsp_uri = None
+            ca_issuer = None
+            for aia in self.aia_ext.value:
+                if aia.access_method == x509_oid.AuthorityInformationAccessOID.OCSP:
+                    if isinstance(aia.access_location, UniformResourceIdentifier):
+                        ocsp_uri = aia.access_location.value
+                if aia.access_method == x509_oid.AuthorityInformationAccessOID.CA_ISSUERS:
+                    if isinstance(aia.access_location, UniformResourceIdentifier):
+                        ca_issuer = aia.access_location.value
+            print("Authority Information Access (AIA):")
             print("    Issuer: %s" % ca_issuer)
             print("    OCSP: %s" % ocsp_uri)
 
@@ -138,11 +143,13 @@ class CertChecker:
         return not is_expired and ocsp_stat
 
     def _verify_ocsp(self):
-        ocsp_uri = self.aia_ext.ocsp
-        if ocsp_uri:
-            ocsp_uri = ocsp_uri.decode('ascii')
-        else:
-            raise ValueError("Cannot do get OCSP URI! Cert has no URL in OCSP.")
+        ocsp_uri = None
+        for aia in self.aia_ext.value:
+            if aia.access_method == x509_oid.AuthorityInformationAccessOID.OCSP:
+                if isinstance(aia.access_location, UniformResourceIdentifier):
+                    ocsp_uri = aia.access_location.value
+        if not ocsp_uri:
+            raise ValueError("Cannot do get OCSP URI! Cert has no URL in AIA.")
 
         issuer_cert = self._load_issuer_cert()
         ocsp = OcspChecker(self.cert, issuer_cert)
@@ -161,10 +168,12 @@ class CertChecker:
         return ocsp_stat
 
     def _load_issuer_cert(self):
-        ca_issuer = self.aia_ext.ca_issuer
-        if ca_issuer:
-            ca_issuer = ca_issuer.decode('ascii')
-        else:
+        ca_issuer = None
+        for aia in self.aia_ext.value:
+            if aia.access_method == x509_oid.AuthorityInformationAccessOID.CA_ISSUERS:
+                if isinstance(aia.access_location, UniformResourceIdentifier):
+                    ca_issuer = aia.access_location.value
+        if not ca_issuer:
             raise ValueError("Cannot do get issuer certificate! Cert has no URL in AIA.")
 
         issuer_cert_bytes = OcspChecker.load_issuer_cert_from_url(ca_issuer)
