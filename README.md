@@ -11,11 +11,12 @@ usage: cert-check.py [-h] [--connect CONNECT] [--file FILE] [--silent]
 DNS query helper tool
 
 optional arguments:
-  -h, --help         show this help message and exit
-  --connect CONNECT  Hostname:port to connect to for a TLS-certificate
-  --file FILE        TLS-certificate PEM-file to read
-  --silent           Normal mode is to be verbose and output human-readable
-                     information.
+  -h, --help            show this help message and exit
+  --connect CONNECT     Hostname:port to connect to for a TLS-certificate
+  --file FILE           TLS-certificate PEM-file to read
+  --silent              Normal mode is to be verbose and output human-readable
+                        information.
+  --print-ocsp-command  Output openssl-command for OCSP-verification
 ```
 
 ### Example
@@ -63,3 +64,21 @@ Example:
 ./cert-check.py --file tekes.pem.cer
 ```
 will result in similar output.
+
+### Output OpenSSL-command to run OCSP-verify
+For learning, how to do OCSP-verifying without this tool, sample commands can be output
+to yield similar results.
+
+Note: `openssl` will require both target certificate to be verified and the issuer CA-certificate
+PEM-certificates to be accessed as local files.
+Part of `cert-check.py` is to simplify the sequence and load certificates on-the-fly.
+
+Example:
+```bash
+./cert-check.py --file tekes.pem.cer --print-ocsp-command
+```
+output:
+```bash
+$ wget http://cacerts.digicert.com/DigiCertSHA2HighAssuranceServerCA.crt
+$ openssl ocsp -no_nonce -issuer DigiCertSHA2HighAssuranceServerCA.crt -cert tekes.pem.cer -url http://ocsp.digicert.com
+```

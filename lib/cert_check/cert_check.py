@@ -148,12 +148,26 @@ class CertChecker:
 
         return not is_expired and ocsp_stat
 
-    def _verify_ocsp(self, verbose=False):
+    def issuer_cert_uri(self):
+        ca_issuer = None
+        for aia in self.aia_ext.value:
+            if aia.access_method == x509_oid.AuthorityInformationAccessOID.CA_ISSUERS:
+                if isinstance(aia.access_location, UniformResourceIdentifier):
+                    ca_issuer = aia.access_location.value
+
+        return ca_issuer
+
+    def ocsp_uri(self):
         ocsp_uri = None
         for aia in self.aia_ext.value:
             if aia.access_method == x509_oid.AuthorityInformationAccessOID.OCSP:
                 if isinstance(aia.access_location, UniformResourceIdentifier):
                     ocsp_uri = aia.access_location.value
+
+        return ocsp_uri
+
+    def _verify_ocsp(self, verbose=False):
+        ocsp_uri = self.ocsp_uri()
         if not ocsp_uri:
             raise ValueError("Cannot do get OCSP URI! Cert has no URL in AIA.")
 
