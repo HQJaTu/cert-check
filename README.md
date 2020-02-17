@@ -1,7 +1,22 @@
 # Cert Check library & CLI-tool
 This library and tool is intended to help verification of existing X.509 certificates.
 
+Basic certificate verification includes expiry. The certificate needs not to be expired at the time of verifying.
+Also, an OCSP-check is made if certificate includes appropriate information in Authority Information Access extension.
+
 ## Usage:
+```text
+usage: cert-check.py [-h] [--connect CONNECT] [--file FILE] [--silent]
+
+DNS query helper tool
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --connect CONNECT  Hostname:port to connect to for a TLS-certificate
+  --file FILE        TLS-certificate PEM-file to read
+  --silent           Normal mode is to be verbose and output human-readable
+                     information.
+```
 
 ### Example
 ```bash

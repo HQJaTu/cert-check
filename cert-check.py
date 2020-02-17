@@ -13,6 +13,8 @@ def main():
                         help='Hostname:port to connect to for a TLS-certificate')
     parser.add_argument('--file',
                         help='TLS-certificate PEM-file to read')
+    parser.add_argument('--silent', action='store_true', default=False,
+                        help='Normal mode is to be verbose and output human-readable information.')
     args = parser.parse_args()
 
     cc = CertChecker()
@@ -26,12 +28,12 @@ def main():
             host_parts[1] = int(443)
         else:
             raise ValueError("Don't understand --connect %s!" % args.connect)
-        cc.load_pem_from_host(host_parts[0], host_parts[1])
+        cc.load_pem_from_host(host_parts[0], host_parts[1], verbose=not args.silent)
 
     if not cc.has_cert():
         raise ValueError("Cannot proceed, no cert!")
 
-    verify_stat = cc.verify()
+    verify_stat = cc.verify(verbose=not args.silent)
     if not verify_stat:
         exit(1)
 

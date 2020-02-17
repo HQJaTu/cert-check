@@ -24,7 +24,7 @@ class CertChecker:
         self.cert = crypto.load_certificate(crypto.FILETYPE_PEM, st_cert)
         self._process_extensions()
 
-    def load_pem_from_host(self, hostname, port):
+    def load_pem_from_host(self, hostname, port, verbose=False):
         self.cert = None
 
         # Initialize context
@@ -65,8 +65,9 @@ class CertChecker:
         ssl_conn.do_handshake()
 
         if self.cert:
-            print("TLS-version used in connection: %s" % tls_version)
-            print("OCSP assertion length: %d" % len(ocsp_assertion))
+            if verbose:
+                print("TLS-version used in connection: %s" % tls_version)
+                print("OCSP assertion length: %d" % len(ocsp_assertion))
             self._process_extensions()
 
     def _process_extensions(self):
@@ -75,7 +76,7 @@ class CertChecker:
         self.aia_ext = extensions.get_extension_for_class(x509_extensions.AuthorityInformationAccess)
         self.alt_name_ext = extensions.get_extension_for_class(x509_extensions.SubjectAlternativeName)
 
-    def verify(self):
+    def verify(self, verbose=False):
         if not self.cert:
             raise ValueError("Need cert! Cannot do.")
 
@@ -96,14 +97,15 @@ class CertChecker:
         for subject_compo in subject.get_components():
             subject_info += "\n    %s=%s" % (subject_compo[0].decode('ascii'), subject_compo[1].decode('ascii'))
 
-        print("Cert %s expired" % ('has' if is_expired else 'not'))
-        print("    %s - %s" % (valid_from, valid_to))
-        print("Issuer: %s" % issuer_info)
-        print("Subject: %s" % subject_info)
-        print("Serial #: %s" % serial_nro)
-        print("Signature algo: %s" % sig_algo)
+        if verbose:
+            print("Cert %s expired" % ('has' if is_expired else 'not'))
+            print("    %s - %s" % (valid_from, valid_to))
+            print("Issuer: %s" % issuer_info)
+            print("Subject: %s" % subject_info)
+            print("Serial #: %s" % serial_nro)
+            print("Signature algo: %s" % sig_algo)
 
-        if self.alt_name_ext:
+        if verbose and self.alt_name_ext:
             dns_names = []
             ip_addresses = []
             urls = []
@@ -134,15 +136,19 @@ class CertChecker:
                 if aia.access_method == x509_oid.AuthorityInformationAccessOID.CA_ISSUERS:
                     if isinstance(aia.access_location, UniformResourceIdentifier):
                         ca_issuer = aia.access_location.value
-            print("Authority Information Access (AIA):")
-            print("    Issuer: %s" % ca_issuer)
-            print("    OCSP: %s" % ocsp_uri)
 
-        ocsp_stat = self._verify_ocsp()
+            if verbose:
+                print("Authority Information Access (AIA):")
+                print("    Issuer: %s" % ca_issuer)
+                print("    OCSP: %s" % ocsp_uri)
+
+            ocsp_stat = self._verify_ocsp(verbose=verbose)
+        else:
+            ocsp_stat = True
 
         return not is_expired and ocsp_stat
 
-    def _verify_ocsp(self):
+    def _verify_ocsp(self, verbose=False):
         ocsp_uri = None
         for aia in self.aia_ext.value:
             if aia.access_method == x509_oid.AuthorityInformationAccessOID.OCSP:
@@ -155,15 +161,16 @@ class CertChecker:
         ocsp = OcspChecker(self.cert, issuer_cert)
         ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri)
 
-        print("OCSP status:")
-        print("    Response hash algorithm: %s" % ocsp_data['hash_algorithm'])
-        print("    Response signature hash algorithm: %s" % ocsp_data['signature_hash_algorithm'])
-        print("    Certificate status: %s" % ocsp_data['certificate_status'].name)
-        print("    Revocation time: %s" % ocsp_data['revocation_time'])
-        print("    Revocation reason: %s" % ocsp_data['revocation_reason'])
-        print("    Produced at: %s" % ocsp_data['produced_at'])
-        print("    This update: %s" % ocsp_data['this_update'])
-        print("    Next update: %s" % ocsp_data['next_update'])
+        if verbose:
+            print("OCSP status:")
+            print("    Response hash algorithm: %s" % ocsp_data['hash_algorithm'])
+            print("    Response signature hash algorithm: %s" % ocsp_data['signature_hash_algorithm'])
+            print("    Certificate status: %s" % ocsp_data['certificate_status'].name)
+            print("    Revocation time: %s" % ocsp_data['revocation_time'])
+            print("    Revocation reason: %s" % ocsp_data['revocation_reason'])
+            print("    Produced at: %s" % ocsp_data['produced_at'])
+            print("    This update: %s" % ocsp_data['this_update'])
+            print("    Next update: %s" % ocsp_data['next_update'])
 
         return ocsp_stat
 
