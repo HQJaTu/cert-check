@@ -31,7 +31,11 @@ def main():
     if not cc.has_cert():
         raise ValueError("Cannot proceed, no cert!")
 
-    cc.verify()
+    verify_stat = cc.verify()
+    if not verify_stat:
+        exit(1)
+
+    exit(0)
 
 
 if __name__ == "__main__":

@@ -133,7 +133,9 @@ class CertChecker:
             print("    Issuer: %s" % ca_issuer)
             print("    OCSP: %s" % ocsp_uri)
 
-        self._verify_ocsp()
+        ocsp_stat = self._verify_ocsp()
+
+        return not is_expired and ocsp_stat
 
     def _verify_ocsp(self):
         ocsp_uri = self.aia_ext.ocsp
@@ -144,7 +146,19 @@ class CertChecker:
 
         issuer_cert = self._load_issuer_cert()
         ocsp = OcspChecker(self.cert, issuer_cert)
-        ocsp.verify(ocsp_uri)
+        ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri)
+
+        print("OCSP status:")
+        print("    Response hash algorithm: %s" % ocsp_data['hash_algorithm'])
+        print("    Response signature hash algorithm: %s" % ocsp_data['signature_hash_algorithm'])
+        print("    Certificate status: %s" % ocsp_data['certificate_status'].name)
+        print("    Revocation time: %s" % ocsp_data['revocation_time'])
+        print("    Revocation reason: %s" % ocsp_data['revocation_reason'])
+        print("    Produced at: %s" % ocsp_data['produced_at'])
+        print("    This update: %s" % ocsp_data['this_update'])
+        print("    Next update: %s" % ocsp_data['next_update'])
+
+        return ocsp_stat
 
     def _load_issuer_cert(self):
         ca_issuer = self.aia_ext.ca_issuer

@@ -31,20 +31,27 @@ class OcspChecker:
             raise ValueError("OCSP response status: UNAUTHORIZED")
         if not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
             raise ValueError("OCSP response status not successful")
-        #print(ocsp_resp)
-        print("OCSP response:")
-        print("    Response hash algorithm: %s" % ocsp_resp.hash_algorithm.__class__.__name__)
-        print("    Response signature hash algorithm: %s" % ocsp_resp.signature_hash_algorithm.__class__.__name__)
-        #print(ocsp_resp.signature)
-        #print("    Certificates: %s" % ocsp_resp.certificates)
-        #print("    Responder: %s" % ocsp_resp.responder_name)
-        print("    Certificate status: %s" % ocsp_resp.certificate_status)
-        print("    Revocation time: %s" % ocsp_resp.revocation_time)
-        print("    Revocation reason: %s" % ocsp_resp.revocation_reason)
-        print("    Produced at: %s" % ocsp_resp.produced_at)
-        print("    This update: %s" % ocsp_resp.this_update)
-        print("    Next update: %s" % ocsp_resp.next_update)
-        #print("    Serial #: %s" % ocsp_resp.serial_number)
+
+
+        ocsp_status = True
+        ocsp_data = {
+            'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,
+            'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm.__class__.__name__,
+            'certificates': ocsp_resp.certificates,
+            'responder_name': ocsp_resp.responder_name,
+            'certificate_status': ocsp_resp.certificate_status,
+            'revocation_time': ocsp_resp.revocation_time,
+            'revocation_reason': ocsp_resp.revocation_reason,
+            'produced_at': ocsp_resp.produced_at,
+            'this_update': ocsp_resp.this_update,
+            'next_update': ocsp_resp.next_update,
+            'serial_number': ocsp_resp.serial_number,
+        }
+
+        if ocsp_resp.certificate_status != ocsp.OCSPCertStatus.GOOD:
+            ocsp_status = False
+
+        return ocsp_status, ocsp_data
 
     @staticmethod
     def load_issuer_cert_from_url(url):
