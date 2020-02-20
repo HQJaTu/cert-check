@@ -5,6 +5,7 @@ import requests
 
 class OcspChecker:
     ocsp_request = None
+    last_ocsp_response = None
 
     def __init__(self, subject_cert, issuer_cert):
         # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
@@ -32,7 +33,7 @@ class OcspChecker:
         if not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
             raise ValueError("OCSP response status not successful")
 
-
+        self.last_ocsp_response = ocsp_resp.public_bytes(serialization.Encoding.DER)
         ocsp_status = True
         ocsp_data = {
             'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,

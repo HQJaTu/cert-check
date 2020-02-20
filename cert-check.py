@@ -9,6 +9,11 @@ from urllib.parse import urlparse
 import shlex
 
 
+def write_ocsp_response_into_file(ocsp_response_file, ocsp_response):
+    with open(ocsp_response_file, 'wb') as outfile:
+        outfile.write(ocsp_response)
+
+
 def get_ocsp_command(cert_file, issuer_uri, ocsp_uri):
     issuer_url_parts = urlparse(issuer_uri).path.split('/')
     issuer_cert_file = issuer_url_parts[-1]
@@ -25,12 +30,14 @@ def main():
     parser = argparse.ArgumentParser(description='DNS query helper tool')
     parser.add_argument('--connect',
                         help='Hostname:port to connect to for a TLS-certificate')
-    parser.add_argument('--file',
+    parser.add_argument('--file', '--cert-file',
                         help='TLS-certificate PEM-file to read')
     parser.add_argument('--silent', action='store_true', default=False,
                         help='Normal mode is to be verbose and output human-readable information.')
     parser.add_argument('--print-ocsp-command', action='store_true',
                         help='Output openssl-command for OCSP-verification')
+    parser.add_argument('--ocsp-response-file',
+                        help='Write DER-formatted OCSP-response into a file, if specified')
     args = parser.parse_args()
 
     cc = CertChecker()
@@ -50,6 +57,8 @@ def main():
         raise ValueError("Cannot proceed, no cert!")
 
     verify_stat = cc.verify(verbose=not args.silent)
+    if args.ocsp_response_file:
+        write_ocsp_response_into_file(args.ocsp_response_file, cc.last_ocsp_response)
     if args.print_ocsp_command:
         if args.file:
             cert_file = args.file

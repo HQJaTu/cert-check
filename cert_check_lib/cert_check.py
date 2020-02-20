@@ -11,6 +11,7 @@ class CertChecker:
     cert = None
     aia_ext = None
     alt_name_ext = None
+    last_ocsp_response = None
 
     def __init__(self):
         self.cert = None
@@ -174,6 +175,7 @@ class CertChecker:
         issuer_cert = self._load_issuer_cert()
         ocsp = OcspChecker(self.cert, issuer_cert)
         ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri)
+        self.last_ocsp_response = ocsp.last_ocsp_response
 
         if verbose:
             print("OCSP status:")
