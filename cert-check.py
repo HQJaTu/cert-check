@@ -4,7 +4,7 @@
 
 import sys
 import argparse
-from lib.cert_check import *
+from cert_check_lib import *
 from urllib.parse import urlparse
 import shlex
 
