@@ -1,4 +1,5 @@
 from cryptography.x509 import ocsp
+from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
 from cryptography.hazmat.primitives import serialization
 import requests
 
@@ -10,9 +11,7 @@ class OcspChecker:
     def __init__(self, subject_cert, issuer_cert):
         # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
         builder = ocsp.OCSPRequestBuilder()
-        builder = builder.add_certificate(subject_cert.to_cryptography(),
-                                          issuer_cert.to_cryptography(),
-                                          ocsp.hashes.SHA256())
+        builder = builder.add_certificate(subject_cert, issuer_cert, ocsp.hashes.SHA256())
         self.ocsp_request = builder.build()
 
     def verify(self, url):
@@ -26,7 +25,15 @@ class OcspChecker:
         r.raise_for_status()
 
         # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
-        ocsp_resp = ocsp.load_der_ocsp_response(r.content)
+        if False:
+            # Debug failing responses
+            print(r.content)
+            with open('/tmp/ocsp-resp.bin', 'wb') as outfile:
+                outfile.write(r.content)
+        if False:
+            ocsp_response_der = open('/tmp/ocsp-army.deps.mil-resp.der', 'rb').read()
+            ocsp_resp = x509_openssl_backend.load_der_ocsp_response(ocsp_response_der)
+        ocsp_resp = x509_openssl_backend.load_der_ocsp_response(r.content)
         #print(ocsp_resp.response_status)
         if ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED:
             raise ValueError("OCSP response status: UNAUTHORIZED")
@@ -53,10 +60,3 @@ class OcspChecker:
             ocsp_status = False
 
         return ocsp_status, ocsp_data
-
-    @staticmethod
-    def load_issuer_cert_from_url(url):
-        r = requests.get(url)
-        r.raise_for_status()
-
-        return r.content

@@ -1,7 +1,11 @@
 from OpenSSL import crypto, SSL  # pip3 install pyOpenSSL
+from cryptography.x509 import base as x509
 from cryptography.x509 import DNSName, IPAddress, UniformResourceIdentifier, AccessDescription, ObjectIdentifier
 from cryptography.x509 import extensions as x509_extensions
 from cryptography.x509 import oid as x509_oid
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
+import requests
 import socket
 import datetime
 from .ocsp_check import OcspChecker
@@ -12,6 +16,7 @@ class CertChecker:
     aia_ext = None
     alt_name_ext = None
     last_ocsp_response = None
+    last_issuer_certificate_pem = None
 
     def __init__(self):
         self.cert = None
@@ -20,13 +25,14 @@ class CertChecker:
         return self.cert is not None
 
     def load_pem_from_file(self, certfile):
-        st_cert = open(certfile, 'rt').read()
+        st_cert = open(certfile, 'rb').read()
 
-        self.cert = crypto.load_certificate(crypto.FILETYPE_PEM, st_cert)
+        self.cert = x509_openssl_backend.load_pem_x509_certificate(st_cert)
         self._process_extensions()
 
     def load_pem_from_host(self, hostname, port, verbose=False):
         self.cert = None
+        server_cert = None
 
         # Initialize context
         ctx = SSL.Context(SSL.TLSv1_2_METHOD)
@@ -34,23 +40,24 @@ class CertChecker:
         ocsp_assertion = None
 
         def _info_cb(conn, where_at, return_code):
-            #print("_info_cb: %d" % where_at)
+            # print("_info_cb: %d" % where_at)
             pass
 
         def _connection_cb(conn, cert, errnum, depth, ok):
             nonlocal tls_version
-            #print("_connection_cb, cert: %s" % cert)
+            nonlocal server_cert
+            # print("_connection_cb, cert: %s" % cert)
             tls_version = conn.get_protocol_version_name()
-            #print("_connection_cb, tls_version: %s" % tls_version)
-            self.cert = cert
+            # print("_connection_cb, tls_version: %s" % tls_version)
+            server_cert = cert
 
             return True
 
         def _ocsp_cb(conn, assertion, data):
             nonlocal ocsp_assertion
             ocsp_assertion = assertion
-            #print("_ocsp_cb: %d" % len(assertion))
-            #print(assertion)
+            # print("_ocsp_cb: %d" % len(assertion))
+            # print(assertion)
 
             return True
 
@@ -65,15 +72,17 @@ class CertChecker:
         ssl_conn.set_connect_state()
         ssl_conn.do_handshake()
 
-        if self.cert:
-            if verbose:
-                print("TLS-version used in connection: %s" % tls_version)
-                print("OCSP assertion length: %d" % len(ocsp_assertion))
-            self._process_extensions()
+        if not server_cert:
+            raise ValueError("Failed to load certificate from %s:%d" % (hostname, port))
+
+        if verbose:
+            print("TLS-version used in connection: %s" % tls_version)
+            print("OCSP assertion length: %d" % len(ocsp_assertion))
+        self.cert = server_cert.to_cryptography()
+        self._process_extensions()
 
     def _process_extensions(self):
-        cert = self.cert.to_cryptography()
-        extensions = x509_extensions.Extensions(cert.extensions)
+        extensions = x509_extensions.Extensions(self.cert.extensions)
         self.aia_ext = extensions.get_extension_for_class(x509_extensions.AuthorityInformationAccess)
         self.alt_name_ext = extensions.get_extension_for_class(x509_extensions.SubjectAlternativeName)
 
@@ -81,22 +90,25 @@ class CertChecker:
         if not self.cert:
             raise ValueError("Need cert! Cannot do.")
 
-        is_expired = self.cert.has_expired()
-        issuer = self.cert.get_issuer()
-        subject = self.cert.get_subject()
-        serial_nro = self.cert.get_serial_number()
-        sig_algo = self.cert.get_signature_algorithm().decode('ascii')
-        valid_from = self.cert.get_notBefore().decode('ascii')
-        valid_from = datetime.datetime.strptime(valid_from, '%Y%m%d%H%M%SZ')
-        valid_to = self.cert.get_notAfter().decode('ascii')
-        valid_to = datetime.datetime.strptime(valid_to, '%Y%m%d%H%M%SZ')
+        issuer = self.cert.issuer
+        subject = self.cert.subject
+        serial_nro = self.cert.serial_number
+        sig_algo = self.cert.signature_hash_algorithm.__class__.__name__
+        valid_from = self.cert.not_valid_before
+        valid_to = self.cert.not_valid_after
+        now = datetime.datetime.utcnow()
+        if now < valid_from or now > valid_to:
+            is_expired = True
+        else:
+            is_expired = False
 
         issuer_info = ""
         subject_info = ""
-        for issuer_compo in issuer.get_components():
-            issuer_info += "\n    %s=%s" % (issuer_compo[0].decode('ascii'), issuer_compo[1].decode('ascii'))
-        for subject_compo in subject.get_components():
-            subject_info += "\n    %s=%s" % (subject_compo[0].decode('ascii'), subject_compo[1].decode('ascii'))
+        for issuer_compo in issuer:
+            print(issuer_compo)
+            issuer_info += "\n    %s=%s" % (issuer_compo.oid._name, issuer_compo.value)
+        for subject_compo in subject:
+            subject_info += "\n    %s=%s" % (subject_compo.oid._name, subject_compo.value)
 
         if verbose:
             print("Cert %s expired" % ('has' if is_expired else 'not'))
@@ -199,7 +211,11 @@ class CertChecker:
         if not ca_issuer:
             raise ValueError("Cannot do get issuer certificate! Cert has no URL in AIA.")
 
-        issuer_cert_bytes = OcspChecker.load_issuer_cert_from_url(ca_issuer)
-        issuer_cert = crypto.load_certificate(crypto.FILETYPE_ASN1, issuer_cert_bytes)
+        # Go get the issuer certificate from indicated URI
+        r = requests.get(ca_issuer)
+        r.raise_for_status()
+
+        issuer_cert = x509.load_der_x509_certificate(r.content, x509_openssl_backend)
+        self.last_issuer_certificate_pem = issuer_cert.public_bytes(serialization.Encoding.PEM)
 
         return issuer_cert
