@@ -24,8 +24,9 @@ def get_ocsp_command(cert_file, issuer_uri, ocsp_uri):
     issuer_cert_file = issuer_url_parts[-1]
     cmd = []
     cmd.append('$ wget %s' % issuer_uri)
-    cmd.append('$ openssl ocsp -no_nonce -issuer %s -cert %s -url %s' %
-               (shlex.quote(issuer_cert_file), shlex.quote(cert_file), ocsp_uri)
+    cmd.append('$ openssl ocsp -no_nonce -verify_other %s -issuer %s -cert %s -url %s' %
+               (shlex.quote(issuer_cert_file), shlex.quote(issuer_cert_file),
+                shlex.quote(cert_file), ocsp_uri)
                )
 
     return cmd
@@ -43,7 +44,7 @@ def main():
                         help='Output openssl-command for OCSP-verification')
     parser.add_argument('--ocsp-response-file',
                         help='Write DER-formatted OCSP-response into a file, if specified')
-    parser.add_argument('--issuer-certificate-file',
+    parser.add_argument('--issuer-certificate-file', '--issuer-cert-file',
                         help='Write PEM-formatted issuer X.509 certificate into a file, if specified')
     args = parser.parse_args()
 
@@ -77,7 +78,7 @@ def main():
         else:
             cert_file = 'certificate.pem'
         ocsp_cmd = get_ocsp_command(cert_file, cc.issuer_cert_uri(), cc.ocsp_uri())
-        print("Commands to execute for OCSP-verification is\n%s" % '\n'.join(ocsp_cmd))
+        print("Commands to execute for OCSP-verification:\n%s" % '\n'.join(ocsp_cmd))
     if not verify_stat:
         exit(1)
 

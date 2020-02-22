@@ -45,6 +45,11 @@ class OcspChecker:
         ocsp_data = {
             'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,
             'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm.__class__.__name__,
+            'signature': ocsp_resp.signature,
+            'responder_key_hash': ocsp_resp.responder_key_hash,
+            'issuer_key_hash': ocsp_resp.issuer_key_hash,
+            'issuer_name_hash': ocsp_resp.issuer_name_hash,
+            'serial_number': ocsp_resp.serial_number,
             'certificates': ocsp_resp.certificates,
             'responder_name': ocsp_resp.responder_name,
             'certificate_status': ocsp_resp.certificate_status,
@@ -52,8 +57,7 @@ class OcspChecker:
             'revocation_reason': ocsp_resp.revocation_reason,
             'produced_at': ocsp_resp.produced_at,
             'this_update': ocsp_resp.this_update,
-            'next_update': ocsp_resp.next_update,
-            'serial_number': ocsp_resp.serial_number,
+            'next_update': ocsp_resp.next_update
         }
 
         if ocsp_resp.certificate_status != ocsp.OCSPCertStatus.GOOD:

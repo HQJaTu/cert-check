@@ -22,6 +22,7 @@ class CertChecker:
     cert = None
     aia_ext = None
     alt_name_ext = None
+    key_id_ext = None
     last_ocsp_response = None
     last_issuer_certificate_pem = None
 
@@ -89,20 +90,28 @@ class CertChecker:
         self._process_extensions(verbose=verbose)
 
     def _process_extensions(self, verbose=False):
+        self.aia_ext = None
+        self.alt_name_ext = None
+        self.key_id_ext = None
+
         extensions = x509_extensions.Extensions(self.cert.extensions)
         try:
             self.aia_ext = extensions.get_extension_for_class(x509_extensions.AuthorityInformationAccess)
         except x509_extensions.ExtensionNotFound:
-            self.alt_name_ext = None
             if verbose:
                 print("Note: This certificate doesn't have AuthorityInformationAccess extension")
 
         try:
             self.alt_name_ext = extensions.get_extension_for_class(x509_extensions.SubjectAlternativeName)
         except x509_extensions.ExtensionNotFound:
-            self.alt_name_ext = None
             if verbose:
                 print("Note: This certificate doesn't have SubjectAlternativeName extension")
+
+        try:
+            self.key_id_ext = extensions.get_extension_for_class(x509_extensions.SubjectKeyIdentifier)
+        except x509_extensions.ExtensionNotFound:
+            if verbose:
+                print("Note: This certificate doesn't have SubjectKeyIdentifier extension")
 
     def verify(self, verbose=False):
         if not self.cert:
@@ -176,6 +185,12 @@ class CertChecker:
         else:
             ocsp_stat = True
 
+        if verbose:
+            if ocsp_stat:
+                print("OCSP pass")
+            else:
+                print("OCSP fail!")
+
         return not is_expired and ocsp_stat
 
     def issuer_cert_uri(self):
@@ -216,6 +231,37 @@ class CertChecker:
             print("    Produced at: %s" % ocsp_data['produced_at'])
             print("    This update: %s" % ocsp_data['this_update'])
             print("    Next update: %s" % ocsp_data['next_update'])
+
+        serial_nro = self.cert.serial_number
+        if serial_nro == ocsp_data['serial_number']:
+            if verbose:
+                print("    OCSP serial number: Matches certificate serial number")
+        else:
+            ocsp_stat = False
+            if verbose:
+                print("    OCSP serial number: %s does not match certificate serial number" % ocsp_data['serial_number'])
+
+        issuer_key_id_ext = None
+        extensions = x509_extensions.Extensions(issuer_cert.extensions)
+        try:
+            issuer_key_id_ext = extensions.get_extension_for_class(x509_extensions.SubjectKeyIdentifier)
+        except x509_extensions.ExtensionNotFound:
+            pass
+        if issuer_key_id_ext:
+            issuer_cert_key_hash = issuer_key_id_ext.value
+
+            if issuer_key_id_ext.value.digest == ocsp_data['issuer_key_hash']:
+                if verbose:
+                    print("    OCSP issuer key hash: Matches issuer certificate key hash")
+            else:
+                ocsp_stat = False
+                if verbose:
+                    print("    OCSP issuer key hash: %s does not match issuer certificate key hash" %
+                          ocsp_data['issuer_key_hash'].hex())
+            print("    Issuer key hash: %s" % ocsp_data['issuer_key_hash'].hex())
+        else:
+            if verbose:
+                print("    OCSP issuer key hash: Failed to verify, issuer certificate doesn't indicate Key Identifier!")
 
         return ocsp_stat
 
