@@ -1,10 +1,17 @@
 from OpenSSL import crypto, SSL  # pip3 install pyOpenSSL
-from cryptography.x509 import base as x509
-from cryptography.x509 import DNSName, IPAddress, UniformResourceIdentifier, AccessDescription, ObjectIdentifier
-from cryptography.x509 import extensions as x509_extensions
-from cryptography.x509 import oid as x509_oid
+from OpenSSL._util import (
+    ffi as _ffi,
+    lib as _lib,
+)
+from cryptography.x509 import (
+    base as x509,
+    extensions as x509_extensions,
+    oid as x509_oid,
+    DNSName, IPAddress, UniformResourceIdentifier
+)
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
+from cryptography.hazmat.backends.openssl.x509 import _Certificate as x509_Certificate
 import requests
 import socket
 import datetime
@@ -79,12 +86,23 @@ class CertChecker:
             print("TLS-version used in connection: %s" % tls_version)
             print("OCSP assertion length: %d" % len(ocsp_assertion))
         self.cert = server_cert.to_cryptography()
-        self._process_extensions()
+        self._process_extensions(verbose=verbose)
 
-    def _process_extensions(self):
+    def _process_extensions(self, verbose=False):
         extensions = x509_extensions.Extensions(self.cert.extensions)
-        self.aia_ext = extensions.get_extension_for_class(x509_extensions.AuthorityInformationAccess)
-        self.alt_name_ext = extensions.get_extension_for_class(x509_extensions.SubjectAlternativeName)
+        try:
+            self.aia_ext = extensions.get_extension_for_class(x509_extensions.AuthorityInformationAccess)
+        except x509_extensions.ExtensionNotFound:
+            self.alt_name_ext = None
+            if verbose:
+                print("Note: This certificate doesn't have AuthorityInformationAccess extension")
+
+        try:
+            self.alt_name_ext = extensions.get_extension_for_class(x509_extensions.SubjectAlternativeName)
+        except x509_extensions.ExtensionNotFound:
+            self.alt_name_ext = None
+            if verbose:
+                print("Note: This certificate doesn't have SubjectAlternativeName extension")
 
     def verify(self, verbose=False):
         if not self.cert:
@@ -105,7 +123,6 @@ class CertChecker:
         issuer_info = ""
         subject_info = ""
         for issuer_compo in issuer:
-            print(issuer_compo)
             issuer_info += "\n    %s=%s" % (issuer_compo.oid._name, issuer_compo.value)
         for subject_compo in subject:
             subject_info += "\n    %s=%s" % (subject_compo.oid._name, subject_compo.value)
@@ -215,7 +232,33 @@ class CertChecker:
         r = requests.get(ca_issuer)
         r.raise_for_status()
 
-        issuer_cert = x509.load_der_x509_certificate(r.content, x509_openssl_backend)
+        contentType = r.headers['content-type']
+
+        if contentType == 'application/x-x509-ca-cert':
+            # This is a basic DER-formatted certificate
+            issuer_cert = x509.load_der_x509_certificate(r.content, x509_openssl_backend)
+        elif contentType == 'application/pkcs7-mime':
+            # This is a DER-formatted certificate wrapped into PKCS#7
+            pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, r.content)
+
+            certs = _ffi.NULL
+            if pkcs7.type_is_signed():
+                certs = pkcs7._pkcs7.d.sign.cert
+            elif pkcs7.type_is_enveloped():
+                certs = pkcs7._pkcs7.d.enveloped.cert
+            elif pkcs7.type_is_signedAndEnveloped():
+                certs = pkcs7._pkcs7.d.signed_and_enveloped.cert
+
+            num_certs_in_pkcs7 =_lib.sk_X509_num(certs)
+            if num_certs_in_pkcs7 != 1:
+                raise ValueError('Found PKCS#7 certificate with multiple certificates! Cannot decide which one to load.')
+
+            cert_data_ptr = _lib.X509_dup(_lib.sk_X509_value(certs, 0))
+            interim_issuer_cert = crypto.X509._from_raw_x509_ptr(cert_data_ptr)
+            issuer_cert = interim_issuer_cert.to_cryptography()
+        else:
+            raise ValueError("Certificate loaded from %s has content type %s. Don't know how to process it." %
+                             (ca_issuer, contentType))
         self.last_issuer_certificate_pem = issuer_cert.public_bytes(serialization.Encoding.PEM)
 
         return issuer_cert
