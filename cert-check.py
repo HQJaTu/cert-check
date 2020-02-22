@@ -14,6 +14,11 @@ def write_ocsp_response_into_file(ocsp_response_file, ocsp_response):
         outfile.write(ocsp_response)
 
 
+def write_certificate_into_file(certificate_file, certificate_bytes):
+    with open(certificate_file, 'wb') as outfile:
+        outfile.write(certificate_bytes)
+
+
 def get_ocsp_command(cert_file, issuer_uri, ocsp_uri):
     issuer_url_parts = urlparse(issuer_uri).path.split('/')
     issuer_cert_file = issuer_url_parts[-1]
@@ -38,6 +43,8 @@ def main():
                         help='Output openssl-command for OCSP-verification')
     parser.add_argument('--ocsp-response-file',
                         help='Write DER-formatted OCSP-response into a file, if specified')
+    parser.add_argument('--issuer-certificate-file',
+                        help='Write PEM-formatted issuer X.509 certificate into a file, if specified')
     args = parser.parse_args()
 
     cc = CertChecker()
@@ -57,8 +64,13 @@ def main():
         raise ValueError("Cannot proceed, no cert!")
 
     verify_stat = cc.verify(verbose=not args.silent)
-    if args.ocsp_response_file:
+
+    if args.ocsp_response_file and cc.last_ocsp_response:
         write_ocsp_response_into_file(args.ocsp_response_file, cc.last_ocsp_response)
+
+    if args.issuer_certificate_file and cc.last_issuer_certificate_pem:
+        write_certificate_into_file(args.issuer_certificate_file, cc.last_issuer_certificate_pem)
+
     if args.print_ocsp_command:
         if args.file:
             cert_file = args.file
