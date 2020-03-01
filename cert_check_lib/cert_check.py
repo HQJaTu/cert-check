@@ -306,7 +306,7 @@ class CertChecker:
 
         contentType = r.headers['content-type']
 
-        if contentType == 'application/x-x509-ca-cert':
+        if contentType in ['application/x-x509-ca-cert', 'application/pkix-cert']:
             # This is a basic DER-formatted certificate
             issuer_cert = x509.load_der_x509_certificate(r.content, x509_openssl_backend)
         elif contentType == 'application/pkcs7-mime':
