@@ -34,17 +34,19 @@ def get_ocsp_command(cert_file, issuer_uri, ocsp_uri):
 
 def main():
     parser = argparse.ArgumentParser(description='DNS query helper tool')
-    parser.add_argument('--connect',
-                        help='Hostname:port to connect to for a TLS-certificate')
-    parser.add_argument('--file', '--cert-file',
+    parser.add_argument('--connect', metavar='HOSTNAME:PORT',
+                        help='Host to connect to for extracting a TLS-certificate')
+    parser.add_argument('--file', '--cert-file', metavar='PEM-CERT-FILE',
                         help='TLS-certificate PEM-file to read')
     parser.add_argument('--silent', action='store_true', default=False,
                         help='Normal mode is to be verbose and output human-readable information.')
     parser.add_argument('--print-ocsp-command', action='store_true',
                         help='Output openssl-command for OCSP-verification')
-    parser.add_argument('--ocsp-response-file',
+    parser.add_argument('--ocsp-response-file', metavar='OCSP-RESPONSE-FILE',
                         help='Write DER-formatted OCSP-response into a file, if specified')
-    parser.add_argument('--issuer-certificate-file', '--issuer-cert-file',
+    parser.add_argument('--output-certificate-file', '--out-cert-file', metavar='PEM-CERT-FILE',
+                        help='Write PEM-formatted X.509 certificate into a file, if specified')
+    parser.add_argument('--output-issuer-certificate-file', '--out-issuer-cert-file', metavar='PEM-CERT-FILE',
                         help='Write PEM-formatted issuer X.509 certificate into a file, if specified')
     args = parser.parse_args()
 
@@ -69,8 +71,11 @@ def main():
     if args.ocsp_response_file and cc.last_ocsp_response:
         write_ocsp_response_into_file(args.ocsp_response_file, cc.last_ocsp_response)
 
-    if args.issuer_certificate_file and cc.last_issuer_certificate_pem:
-        write_certificate_into_file(args.issuer_certificate_file, cc.last_issuer_certificate_pem)
+    if args.output_certificate_file and cc.last_certificate_pem:
+        write_certificate_into_file(args.output_certificate_file, cc.last_certificate_pem)
+
+    if args.output_issuer_certificate_file and cc.last_issuer_certificate_pem:
+        write_certificate_into_file(args.output_issuer_certificate_file, cc.last_issuer_certificate_pem)
 
     if args.print_ocsp_command:
         if args.file:

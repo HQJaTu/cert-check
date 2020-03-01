@@ -6,25 +6,30 @@ Also, an OCSP-check is made if certificate includes appropriate information in A
 
 ## Usage:
 ```text
-usage: cert-check.py [-h] [--connect CONNECT] [--file FILE] [--silent]
-                     [--print-ocsp-command]
-                     [--ocsp-response-file OCSP_RESPONSE_FILE]
-                     [--issuer-certificate-file ISSUER_CERTIFICATE_FILE]
+usage: cert-check.py [-h] [--connect HOSTNAME:PORT] [--file PEM-CERT-FILE]
+                     [--silent] [--print-ocsp-command]
+                     [--ocsp-response-file OCSP-RESPONSE-FILE]
+                     [--output-certificate-file PEM-CERT-FILE]
+                     [--output-issuer-certificate-file PEM-CERT-FILE]
 
 DNS query helper tool
 
 optional arguments:
   -h, --help            show this help message and exit
-  --connect CONNECT     Hostname:port to connect to for a TLS-certificate
-  --file FILE, --cert-file FILE
+  --connect HOSTNAME:PORT
+                        Host to connect to for extracting a TLS-certificate
+  --file PEM-CERT-FILE, --cert-file PEM-CERT-FILE
                         TLS-certificate PEM-file to read
   --silent              Normal mode is to be verbose and output human-readable
                         information.
   --print-ocsp-command  Output openssl-command for OCSP-verification
-  --ocsp-response-file OCSP_RESPONSE_FILE
+  --ocsp-response-file OCSP-RESPONSE-FILE
                         Write DER-formatted OCSP-response into a file, if
                         specified
-  --issuer-certificate-file ISSUER_CERTIFICATE_FILE, --issuer-cert-file ISSUER_CERTIFICATE_FILE
+  --output-certificate-file PEM-CERT-FILE, --out-cert-file PEM-CERT-FILE
+                        Write PEM-formatted X.509 certificate into a file, if
+                        specified
+  --output-issuer-certificate-file PEM-CERT-FILE, --out-issuer-cert-file PEM-CERT-FILE
                         Write PEM-formatted issuer X.509 certificate into a
                         file, if specified
 ```
