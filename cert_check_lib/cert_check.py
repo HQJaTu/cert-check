@@ -231,6 +231,7 @@ class CertChecker:
 
         if verbose:
             print("OCSP status:")
+            print("    Request hash algorithm: %s" % ocsp_data['request_hash_algorithm'])
             print("    Response hash algorithm: %s" % ocsp_data['hash_algorithm'])
             print("    Response signature hash algorithm: %s" % ocsp_data['signature_hash_algorithm'])
             print("    Certificate status: %s" % ocsp_data['certificate_status'].name)

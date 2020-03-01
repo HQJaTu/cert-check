@@ -61,6 +61,7 @@ class OcspChecker:
         if ocsp_status:
             ocsp_data = {
                 'response_status_ok': True,
+                'request_hash_algorithm': self.request_hash.name.upper(),
                 'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,
                 'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm.__class__.__name__,
                 'signature': ocsp_resp.signature,
@@ -84,6 +85,7 @@ class OcspChecker:
             self.last_ocsp_response = None
             ocsp_data = {
                 'response_status_ok': False,
+                'request_hash_algorithm': self.request_hash.name.upper(),
                 'hash_algorithm': None,
                 'signature_hash_algorithm': None,
                 'signature': None,
