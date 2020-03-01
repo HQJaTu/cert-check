@@ -45,32 +45,37 @@ OCSP assertion length: 0
 Cert not expired
     2019-01-12 00:00:00 - 2021-01-20 12:00:00
 Issuer:
-    C=US
-    O=DigiCert Inc
-    OU=www.digicert.com
-    CN=DigiCert SHA2 High Assurance Server CA
+    countryName=US
+    organizationName=DigiCert Inc
+    organizationalUnitName=www.digicert.com
+    commonName=DigiCert SHA2 High Assurance Server CA
 Subject:
-    C=FI
-    L=Helsinki
-    O=Business Finland Oy
-    OU=Marketing and communications
-    CN=www.horisontti2020.fi
+    countryName=FI
+    localityName=Helsinki
+    organizationName=Business Finland Oy
+    organizationalUnitName=Marketing and communications
+    commonName=www.horisontti2020.fi
 Serial #: 10865345032188387016727712607843656671
-Signature algo: sha256WithRSAEncryption
+Signature algo: SHA256
 Alternate names:
     DNS-names: www.horisontti2020.fi, horisontti2020.fi
 Authority Information Access (AIA):
     Issuer: http://cacerts.digicert.com/DigiCertSHA2HighAssuranceServerCA.crt
     OCSP: http://ocsp.digicert.com
 OCSP status:
+    Request hash algorithm: SHA256
     Response hash algorithm: SHA1
     Response signature hash algorithm: SHA256
     Certificate status: REVOKED
     Revocation time: 2019-06-04 13:59:36
     Revocation reason: None
-    Produced at: 2020-02-16 18:10:42
-    This update: 2020-02-16 18:10:42
-    Next update: 2020-02-23 17:25:42
+    Produced at: 2020-03-01 18:11:24
+    This update: 2020-03-01 18:11:24
+    Next update: 2020-03-08 17:26:24
+    OCSP serial number: Matches certificate serial number
+    OCSP issuer key hash: Matches issuer certificate key SHA1 hash
+    OCSP issuer name hash: Matches issuer certificate name SHA1 hash
+OCSP fail!
 ```
 
 ### Verifying existing PEM-file
