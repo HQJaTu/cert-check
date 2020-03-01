@@ -29,6 +29,7 @@ class CertChecker:
     alt_name_ext = None
     key_id_ext = None
     last_ocsp_response = None
+    last_certificate_pem = None
     last_issuer_certificate_pem = None
 
     def __init__(self):
@@ -42,6 +43,7 @@ class CertChecker:
 
         self.cert = x509_openssl_backend.load_pem_x509_certificate(st_cert)
         self._process_extensions()
+        self.last_certificate_pem = None
 
     def load_pem_from_host(self, hostname, port, verbose=False):
         self.cert = None
@@ -93,6 +95,7 @@ class CertChecker:
             print("OCSP assertion length: %d" % len(ocsp_assertion))
         self.cert = server_cert.to_cryptography()
         self._process_extensions(verbose=verbose)
+        self.last_certificate_pem = self.cert.public_bytes(serialization.Encoding.PEM)
 
     def _process_extensions(self, verbose=False):
         self.aia_ext = None
@@ -223,7 +226,7 @@ class CertChecker:
 
         issuer_cert = self._load_issuer_cert()
         ocsp = OcspChecker(self.cert, issuer_cert)
-        ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri)
+        ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
         if verbose:
@@ -236,6 +239,9 @@ class CertChecker:
             print("    Produced at: %s" % ocsp_data['produced_at'])
             print("    This update: %s" % ocsp_data['this_update'])
             print("    Next update: %s" % ocsp_data['next_update'])
+
+        if not ocsp_data['response_status_ok']:
+            return False
 
         # Response verify 1:
         # Make sure response certificate serial number matches our target certificate serial
@@ -327,7 +333,7 @@ class CertChecker:
             if verbose:
                 print("    OCSP issuer name hash: Matches issuer certificate name %s hash" %
                       ocsp_data['hash_algorithm']
-                )
+                      )
         else:
             ocsp_stat = False
             if verbose:
