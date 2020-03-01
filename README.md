@@ -7,16 +7,26 @@ Also, an OCSP-check is made if certificate includes appropriate information in A
 ## Usage:
 ```text
 usage: cert-check.py [-h] [--connect CONNECT] [--file FILE] [--silent]
+                     [--print-ocsp-command]
+                     [--ocsp-response-file OCSP_RESPONSE_FILE]
+                     [--issuer-certificate-file ISSUER_CERTIFICATE_FILE]
 
 DNS query helper tool
 
 optional arguments:
   -h, --help            show this help message and exit
   --connect CONNECT     Hostname:port to connect to for a TLS-certificate
-  --file FILE           TLS-certificate PEM-file to read
+  --file FILE, --cert-file FILE
+                        TLS-certificate PEM-file to read
   --silent              Normal mode is to be verbose and output human-readable
                         information.
   --print-ocsp-command  Output openssl-command for OCSP-verification
+  --ocsp-response-file OCSP_RESPONSE_FILE
+                        Write DER-formatted OCSP-response into a file, if
+                        specified
+  --issuer-certificate-file ISSUER_CERTIFICATE_FILE, --issuer-cert-file ISSUER_CERTIFICATE_FILE
+                        Write PEM-formatted issuer X.509 certificate into a
+                        file, if specified
 ```
 
 ### Example
