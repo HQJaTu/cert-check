@@ -9,12 +9,17 @@ from cryptography.x509 import (
     oid as x509_oid,
     DNSName, IPAddress, UniformResourceIdentifier
 )
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
+from cryptography.hazmat.primitives import (
+    serialization,
+    hashes
+)
+from cryptography.hazmat.backends.openssl.backend import (
+    backend as x509_openssl_backend
+)
 import requests
 import socket
 import datetime
-import hashlib
+from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
 
 
@@ -244,33 +249,61 @@ class CertChecker:
                 print(
                     "    OCSP serial number: %s does not match certificate serial number" % ocsp_data['serial_number'])
 
-        # Implementation note about hashes:
-        # This checking isn't future proof. None of the checks below properly use ocsp_data['hash_algorithm'].
-        # However, at the time of writing, all real-life X.509 certificates are using already deprecated SHA-1.
-        # This assumption makes this code work but it is not the proper way of handling the checks.
-
         # Response verify 2:
         # Make sure response issuer key hash matches target certificate issuer certificate key hash.
-        issuer_key_id_ext = None
-        extensions = x509_extensions.Extensions(issuer_cert.extensions)
-        try:
-            issuer_key_id_ext = extensions.get_extension_for_class(x509_extensions.SubjectKeyIdentifier)
-        except x509_extensions.ExtensionNotFound:
-            pass
-        if issuer_key_id_ext:
-            issuer_cert_key_hash = issuer_key_id_ext.value
+        # Debug: https://lapo.it/asn1js/ or https://holtstrom.com/michael/tools/asn1decoder.php will be handy
+        issuer_cert_public_key = issuer_cert.public_key()
+        issuer_cert_key = issuer_cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
+                                                              format=serialization.PublicFormat.SubjectPublicKeyInfo
+                                                              )
+        issuer_cert_key_asn1, _remainder = asn1_decoder.decode(issuer_cert_key)
+        issuer_cert_key_bytes = issuer_cert_key_asn1[1].asOctets()
 
-            if issuer_key_id_ext.value.digest == ocsp_data['issuer_key_hash']:
-                if verbose:
-                    print("    OCSP issuer key hash: Matches issuer certificate key hash")
-            else:
-                ocsp_stat = False
-                if verbose:
-                    print("    OCSP issuer key hash: %s does not match issuer certificate key hash" %
-                          ocsp_data['issuer_key_hash'].hex())
+        if ocsp_data['hash_algorithm'].lower() == 'sha1':
+            issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._backend)
+        elif ocsp_data['hash_algorithm'].lower() == 'sha256':
+            issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
         else:
+            raise ValueError(
+                "Cannot verify OCSP-response! Information hashed with a '%s' and I don't know how to handle it." %
+                ocsp_data['hash_algorithm'])
+
+        issuer_cert_key_hash.update(issuer_cert_key_bytes)
+        issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
+
+        if issuer_cert_key_hash_bytes == ocsp_data['issuer_key_hash']:
             if verbose:
-                print("    OCSP issuer key hash: Failed to verify, issuer certificate doesn't indicate Key Identifier!")
+                print("    OCSP issuer key hash: Matches issuer certificate key %s hash" % ocsp_data['hash_algorithm'])
+        else:
+            ocsp_stat = False
+            if verbose:
+                print("    OCSP issuer key %s hash: %s does not match issuer certificate key hash" %
+                      (ocsp_data['hash_algorithm'], ocsp_data['issuer_key_hash'].hex()))
+
+        # OBSOLETE! begin using SHA-1 hashed SubjectKeyIdentifier
+        if False:
+            issuer_key_id_ext = None
+            extensions = x509_extensions.Extensions(issuer_cert.extensions)
+            try:
+                issuer_key_id_ext = extensions.get_extension_for_class(x509_extensions.SubjectKeyIdentifier)
+            except x509_extensions.ExtensionNotFound:
+                pass
+            if issuer_key_id_ext:
+                issuer_cert_key_hash = issuer_key_id_ext.value
+                print("Extension issuer key hash : %s" % issuer_cert_key_hash.digest.hex())
+                if issuer_cert_key_hash.digest == ocsp_data['issuer_key_hash']:
+                    if verbose:
+                        print("    OCSP issuer key hash: Matches issuer certificate key hash")
+                else:
+                    ocsp_stat = False
+                    if verbose:
+                        print("    OCSP issuer key hash: %s does not match issuer certificate key hash" %
+                              ocsp_data['issuer_key_hash'].hex())
+            else:
+                if verbose:
+                    print(
+                        "    OCSP issuer key hash: Failed to verify, issuer certificate doesn't indicate Key Identifier!")
+        # OBSOLETE! ends here
 
         # Response verify 3:
         # Make sure response name hash matches target certificate issuer certificate name.
@@ -278,16 +311,28 @@ class CertChecker:
         cert_as_openssl = crypto.load_certificate(crypto.FILETYPE_ASN1, certificate_asn1_bytes)
         cert_as_openssl_subject = cert_as_openssl.get_subject()
         subject_bytes = cert_as_openssl_subject.der()
-        subject_sha1_hash = hashlib.sha1(subject_bytes)
 
-        if subject_sha1_hash.digest() == ocsp_data['issuer_name_hash']:
+        if ocsp_data['hash_algorithm'].lower() == 'sha1':
+            subject_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._backend)
+        elif ocsp_data['hash_algorithm'].lower() == 'sha256':
+            subject_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
+        else:
+            raise ValueError(
+                "Cannot verify OCSP-response! Information hashed with a '%s' and I don't know how to handle it." %
+                ocsp_data['hash_algorithm'])
+
+        subject_hash.update(subject_bytes)
+        subject_hash_bytes = subject_hash.finalize()
+        if subject_hash_bytes == ocsp_data['issuer_name_hash']:
             if verbose:
-                print("    OCSP issuer name hash: Matches issuer certificate name hash")
+                print("    OCSP issuer name hash: Matches issuer certificate name %s hash" %
+                      ocsp_data['hash_algorithm']
+                )
         else:
             ocsp_stat = False
             if verbose:
-                print("    OCSP issuer name hash: %s does not match issuer name hash" %
-                      ocsp_data['issuer_name_hash'].hex())
+                print("    OCSP issuer name %s hash: %s does not match issuer name hash" %
+                      (ocsp_data['hash_algorithm'], ocsp_data['issuer_name_hash'].hex()))
 
         return ocsp_stat
 
