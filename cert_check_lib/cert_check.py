@@ -11,10 +11,10 @@ from cryptography.x509 import (
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
-from cryptography.hazmat.backends.openssl.x509 import _Certificate as x509_Certificate
 import requests
 import socket
 import datetime
+import hashlib
 from .ocsp_check import OcspChecker
 
 
@@ -232,6 +232,8 @@ class CertChecker:
             print("    This update: %s" % ocsp_data['this_update'])
             print("    Next update: %s" % ocsp_data['next_update'])
 
+        # Response verify 1:
+        # Make sure response certificate serial number matches our target certificate serial
         serial_nro = self.cert.serial_number
         if serial_nro == ocsp_data['serial_number']:
             if verbose:
@@ -239,8 +241,16 @@ class CertChecker:
         else:
             ocsp_stat = False
             if verbose:
-                print("    OCSP serial number: %s does not match certificate serial number" % ocsp_data['serial_number'])
+                print(
+                    "    OCSP serial number: %s does not match certificate serial number" % ocsp_data['serial_number'])
 
+        # Implementation note about hashes:
+        # This checking isn't future proof. None of the checks below properly use ocsp_data['hash_algorithm'].
+        # However, at the time of writing, all real-life X.509 certificates are using already deprecated SHA-1.
+        # This assumption makes this code work but it is not the proper way of handling the checks.
+
+        # Response verify 2:
+        # Make sure response issuer key hash matches target certificate issuer certificate key hash.
         issuer_key_id_ext = None
         extensions = x509_extensions.Extensions(issuer_cert.extensions)
         try:
@@ -258,10 +268,26 @@ class CertChecker:
                 if verbose:
                     print("    OCSP issuer key hash: %s does not match issuer certificate key hash" %
                           ocsp_data['issuer_key_hash'].hex())
-            print("    Issuer key hash: %s" % ocsp_data['issuer_key_hash'].hex())
         else:
             if verbose:
                 print("    OCSP issuer key hash: Failed to verify, issuer certificate doesn't indicate Key Identifier!")
+
+        # Response verify 3:
+        # Make sure response name hash matches target certificate issuer certificate name.
+        certificate_asn1_bytes = issuer_cert.public_bytes(serialization.Encoding.DER)
+        cert_as_openssl = crypto.load_certificate(crypto.FILETYPE_ASN1, certificate_asn1_bytes)
+        cert_as_openssl_subject = cert_as_openssl.get_subject()
+        subject_bytes = cert_as_openssl_subject.der()
+        subject_sha1_hash = hashlib.sha1(subject_bytes)
+
+        if subject_sha1_hash.digest() == ocsp_data['issuer_name_hash']:
+            if verbose:
+                print("    OCSP issuer name hash: Matches issuer certificate name hash")
+        else:
+            ocsp_stat = False
+            if verbose:
+                print("    OCSP issuer name hash: %s does not match issuer name hash" %
+                      ocsp_data['issuer_name_hash'].hex())
 
         return ocsp_stat
 
@@ -285,6 +311,12 @@ class CertChecker:
             issuer_cert = x509.load_der_x509_certificate(r.content, x509_openssl_backend)
         elif contentType == 'application/pkcs7-mime':
             # This is a DER-formatted certificate wrapped into PKCS#7
+
+            # DANGER! DANGER! DANGER!
+            # Digging into guts of OpenSSL isn't smart. It's stupid. Very stupid.
+            # For extracting a certificate out of a PKCS#7 there is no ready-made solution and this is the only
+            # applicable way (for now). I'll be standing by for OpenSSL-team to come up with a proper interface for
+            # certificate extraction.
             pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, r.content)
 
             certs = _ffi.NULL
@@ -295,12 +327,15 @@ class CertChecker:
             elif pkcs7.type_is_signedAndEnveloped():
                 certs = pkcs7._pkcs7.d.signed_and_enveloped.cert
 
-            num_certs_in_pkcs7 =_lib.sk_X509_num(certs)
+            num_certs_in_pkcs7 = _lib.sk_X509_num(certs)
             if num_certs_in_pkcs7 != 1:
-                raise ValueError('Found PKCS#7 certificate with multiple certificates! Cannot decide which one to load.')
+                raise ValueError(
+                    'Found PKCS#7 certificate with multiple certificates! Cannot decide which one to load.')
 
             cert_data_ptr = _lib.X509_dup(_lib.sk_X509_value(certs, 0))
             interim_issuer_cert = crypto.X509._from_raw_x509_ptr(cert_data_ptr)
+            # end DANGER! DANGER! DANGER! end
+
             issuer_cert = interim_issuer_cert.to_cryptography()
         else:
             raise ValueError("Certificate loaded from %s has content type %s. Don't know how to process it." %
