@@ -32,6 +32,83 @@ def get_ocsp_command(cert_file, issuer_uri, ocsp_uri):
     return cmd
 
 
+def print_verify_result(verify_result):
+    failures = []
+    certificate_info = verify_result['certificate']
+    ocsp_info = verify_result['ocsp']
+    issuer_info = ""
+    subject_info = ""
+    for issuer_compo_name in certificate_info['issuer']:
+        issuer_info += "\n    %s=%s" % (issuer_compo_name, certificate_info['issuer'][issuer_compo_name])
+    for subject_compo_name in certificate_info['subject']:
+        subject_info += "\n    %s=%s" % (subject_compo_name, certificate_info['subject'][subject_compo_name])
+
+    if certificate_info['expired']:
+        failures.append('Expired')
+    print("Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
+    print("    %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
+    print("Issuer: %s" % issuer_info)
+    print("Subject: %s" % subject_info)
+    print("Serial #: %s" % certificate_info['serial_nro'])
+    print("Signature algo: %s" % certificate_info['signature_algorithm'])
+
+    if certificate_info['dns_names'] or certificate_info['ip_addresses'] or certificate_info['urls']:
+        print("Alternate names:")
+        if certificate_info['dns_names']:
+            print("    DNS-names: %s" % ', '.join(certificate_info['dns_names']))
+        if certificate_info['ip_addresses']:
+            print("    IP-addresses: %s" % ', '.join(certificate_info['ip_addresses']))
+        if certificate_info['urls']:
+            print("    URIs: %s" % ', '.join(certificate_info['urls']))
+
+    print("Authority Information Access (AIA):")
+    print("    Issuer certificate URL: %s" % certificate_info['issuer_cert_url'])
+    print("    OCSP URL: %s" % certificate_info['ocsp_url'])
+
+    print("OCSP status:")
+    if verify_result['ocsp_run']:
+        print("    Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
+        print("    Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
+        print("    Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'])
+        print("    Certificate status: %s" % ocsp_info['certificate_status'].name)
+        print("    Revocation time: %s" % ocsp_info['revocation_time'])
+        print("    Revocation reason: %s" % ocsp_info['revocation_reason'])
+        print("    Produced at: %s" % ocsp_info['produced_at'])
+        print("    This update: %s" % ocsp_info['this_update'])
+        print("    Next update: %s" % ocsp_info['next_update'])
+
+        if ocsp_info['serial_number_match']:
+            print("    OCSP serial number: Matches certificate serial number")
+        else:
+            print(
+                "    OCSP serial number: %s does not match certificate serial number" % ocsp_info['serial_number'])
+
+        if ocsp_info['issuer_key_hash_match']:
+            print("    OCSP issuer key hash: Matches issuer certificate key %s hash" % ocsp_info['hash_algorithm'])
+        else:
+            print("    OCSP issuer key %s hash: %s does not match issuer certificate key hash" %
+                  (ocsp_info['hash_algorithm'], ocsp_info['issuer_key_hash'].hex()))
+
+        if ocsp_info['issuer_name_hash_match']:
+            print("    OCSP issuer name hash: Matches issuer certificate name %s hash" %
+                  ocsp_info['hash_algorithm']
+                  )
+        else:
+            print("    OCSP issuer name %s hash: %s does not match issuer name hash" %
+                  (ocsp_info['hash_algorithm'], ocsp_info['issuer_name_hash'].hex()))
+
+        if verify_result['ocsp_ok']:
+            print("OCSP pass")
+        else:
+            print("OCSP fail!")
+            failures.append('OCSP')
+    else:
+        print("OCSP not verified")
+
+    if failures:
+        print("Failures: %s" % ', '.join(failures))
+
+
 def main():
     parser = argparse.ArgumentParser(description='DNS query helper tool')
     parser.add_argument('--connect', metavar='HOSTNAME:PORT',
@@ -66,7 +143,9 @@ def main():
     if not cc.has_cert():
         raise ValueError("Cannot proceed, no cert!")
 
-    verify_stat = cc.verify(verbose=not args.silent)
+    verify_stat, verify_result = cc.verify(verbose=not args.silent)
+    if not args.silent:
+        print_verify_result(verify_result)
 
     if args.ocsp_response_file and cc.last_ocsp_response:
         write_ocsp_response_into_file(args.ocsp_response_file, cc.last_ocsp_response)

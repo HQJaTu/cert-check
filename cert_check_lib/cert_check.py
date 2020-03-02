@@ -121,14 +121,14 @@ class CertChecker:
             if verbose:
                 print("Note: This certificate doesn't have SubjectKeyIdentifier extension")
 
-    def verify(self, verbose=False):
+    def verify(self, ocsp=True, verbose=False):
         if not self.cert:
             raise ValueError("Need cert! Cannot do.")
 
         issuer = self.cert.issuer
         subject = self.cert.subject
         serial_nro = self.cert.serial_number
-        sig_algo = self.cert.signature_hash_algorithm.__class__.__name__
+        sig_algo = self.cert.signature_hash_algorithm.__class__.__name__.lower()
         valid_from = self.cert.not_valid_before
         valid_to = self.cert.not_valid_after
         now = datetime.datetime.utcnow()
@@ -137,25 +137,17 @@ class CertChecker:
         else:
             is_expired = False
 
-        issuer_info = ""
-        subject_info = ""
+        issuer_info = {}
+        subject_info = {}
         for issuer_compo in issuer:
-            issuer_info += "\n    %s=%s" % (issuer_compo.oid._name, issuer_compo.value)
+            issuer_info[issuer_compo.oid._name] = issuer_compo.value
         for subject_compo in subject:
-            subject_info += "\n    %s=%s" % (subject_compo.oid._name, subject_compo.value)
+            subject_info[subject_compo.oid._name] = subject_compo.value
 
-        if verbose:
-            print("Cert %s expired" % ('has' if is_expired else 'not'))
-            print("    %s - %s" % (valid_from, valid_to))
-            print("Issuer: %s" % issuer_info)
-            print("Subject: %s" % subject_info)
-            print("Serial #: %s" % serial_nro)
-            print("Signature algo: %s" % sig_algo)
-
-        if verbose and self.alt_name_ext:
-            dns_names = []
-            ip_addresses = []
-            urls = []
+        dns_names = []
+        ip_addresses = []
+        urls = []
+        if self.alt_name_ext:
             for alt_name in self.alt_name_ext.value:
                 if isinstance(alt_name, DNSName):
                     dns_names.append(alt_name.value)
@@ -164,18 +156,9 @@ class CertChecker:
                 elif isinstance(alt_name, UniformResourceIdentifier):
                     urls.append(alt_name.value)
 
-            if dns_names or dns_names or urls:
-                print("Alternate names:")
-            if dns_names:
-                print("    DNS-names: %s" % ', '.join(dns_names))
-            if ip_addresses:
-                print("    IP-addresses: %s" % ', '.join(ip_addresses))
-            if urls:
-                print("    URIs: %s" % ', '.join(urls))
-
+        ocsp_uri = None
+        ca_issuer = None
         if self.aia_ext:
-            ocsp_uri = None
-            ca_issuer = None
             for aia in self.aia_ext.value:
                 if aia.access_method == x509_oid.AuthorityInformationAccessOID.OCSP:
                     if isinstance(aia.access_location, UniformResourceIdentifier):
@@ -184,22 +167,36 @@ class CertChecker:
                     if isinstance(aia.access_location, UniformResourceIdentifier):
                         ca_issuer = aia.access_location.value
 
-            if verbose:
-                print("Authority Information Access (AIA):")
-                print("    Issuer: %s" % ca_issuer)
-                print("    OCSP: %s" % ocsp_uri)
-
-            ocsp_stat = self._verify_ocsp(verbose=verbose)
-        else:
-            ocsp_stat = True
-
-        if verbose:
-            if ocsp_stat:
-                print("OCSP pass")
+            if ocsp:
+                ocsp_stat, ocsp_data = self._verify_ocsp(verbose=verbose)
             else:
-                print("OCSP fail!")
+                ocsp_stat = None
+                ocsp_data = {}
+        else:
+            ocsp_stat = None
+            ocsp_data = {}
 
-        return not is_expired and ocsp_stat
+        verify_data = {
+            'certificate': {
+                'expired': is_expired,
+                'valid_from': valid_from,
+                'valid_to': valid_to,
+                'issuer': issuer_info,
+                'subject': subject_info,
+                'serial_nro': serial_nro,
+                'signature_algorithm': sig_algo,
+                'dns_names': dns_names,
+                'ip_addresses': ip_addresses,
+                'urls': urls,
+                'issuer_cert_url': ca_issuer,
+                'ocsp_url': ocsp_uri
+            },
+            'ocsp_run': not ocsp_stat == None,
+            'ocsp_ok': ocsp_stat,
+            'ocsp': ocsp_data
+        }
+
+        return not is_expired and ocsp_stat, verify_data
 
     def issuer_cert_uri(self):
         ca_issuer = None
@@ -229,32 +226,17 @@ class CertChecker:
         ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
-        if verbose:
-            print("OCSP status:")
-            print("    Request hash algorithm: %s" % ocsp_data['request_hash_algorithm'])
-            print("    Response hash algorithm: %s" % ocsp_data['hash_algorithm'])
-            print("    Response signature hash algorithm: %s" % ocsp_data['signature_hash_algorithm'])
-            print("    Certificate status: %s" % ocsp_data['certificate_status'].name)
-            print("    Revocation time: %s" % ocsp_data['revocation_time'])
-            print("    Revocation reason: %s" % ocsp_data['revocation_reason'])
-            print("    Produced at: %s" % ocsp_data['produced_at'])
-            print("    This update: %s" % ocsp_data['this_update'])
-            print("    Next update: %s" % ocsp_data['next_update'])
-
         if not ocsp_data['response_status_ok']:
-            return False
+            return False, ocsp_data
 
         # Response verify 1:
         # Make sure response certificate serial number matches our target certificate serial
         serial_nro = self.cert.serial_number
         if serial_nro == ocsp_data['serial_number']:
-            if verbose:
-                print("    OCSP serial number: Matches certificate serial number")
+            ocsp_data['serial_number_match'] = True
         else:
             ocsp_stat = False
-            if verbose:
-                print(
-                    "    OCSP serial number: %s does not match certificate serial number" % ocsp_data['serial_number'])
+            ocsp_data['serial_number_match'] = False
 
         # Response verify 2:
         # Make sure response issuer key hash matches target certificate issuer certificate key hash.
@@ -279,13 +261,10 @@ class CertChecker:
         issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
 
         if issuer_cert_key_hash_bytes == ocsp_data['issuer_key_hash']:
-            if verbose:
-                print("    OCSP issuer key hash: Matches issuer certificate key %s hash" % ocsp_data['hash_algorithm'])
+            ocsp_data['issuer_key_hash_match'] = True
         else:
             ocsp_stat = False
-            if verbose:
-                print("    OCSP issuer key %s hash: %s does not match issuer certificate key hash" %
-                      (ocsp_data['hash_algorithm'], ocsp_data['issuer_key_hash'].hex()))
+            ocsp_data['issuer_key_hash_match'] = False
 
         # OBSOLETE! begin using SHA-1 hashed SubjectKeyIdentifier
         if False:
@@ -299,17 +278,12 @@ class CertChecker:
                 issuer_cert_key_hash = issuer_key_id_ext.value
                 print("Extension issuer key hash : %s" % issuer_cert_key_hash.digest.hex())
                 if issuer_cert_key_hash.digest == ocsp_data['issuer_key_hash']:
-                    if verbose:
-                        print("    OCSP issuer key hash: Matches issuer certificate key hash")
+                    ocsp_data['issuer_key_hash_match'] = True
                 else:
                     ocsp_stat = False
-                    if verbose:
-                        print("    OCSP issuer key hash: %s does not match issuer certificate key hash" %
-                              ocsp_data['issuer_key_hash'].hex())
+                    ocsp_data['issuer_key_hash_match'] = False
             else:
-                if verbose:
-                    print(
-                        "    OCSP issuer key hash: Failed to verify, issuer certificate doesn't indicate Key Identifier!")
+                ocsp_stat = False
         # OBSOLETE! ends here
 
         # Response verify 3:
@@ -331,17 +305,12 @@ class CertChecker:
         subject_hash.update(subject_bytes)
         subject_hash_bytes = subject_hash.finalize()
         if subject_hash_bytes == ocsp_data['issuer_name_hash']:
-            if verbose:
-                print("    OCSP issuer name hash: Matches issuer certificate name %s hash" %
-                      ocsp_data['hash_algorithm']
-                      )
+            ocsp_data['issuer_name_hash_match'] = True
         else:
             ocsp_stat = False
-            if verbose:
-                print("    OCSP issuer name %s hash: %s does not match issuer name hash" %
-                      (ocsp_data['hash_algorithm'], ocsp_data['issuer_name_hash'].hex()))
+            ocsp_data['issuer_name_hash_match'] = False
 
-        return ocsp_stat
+        return ocsp_stat, ocsp_data
 
     def _load_issuer_cert(self):
         ca_issuer = None
