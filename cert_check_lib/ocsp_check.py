@@ -53,7 +53,7 @@ class OcspChecker:
                 ocsp_status = False
             # raise ValueError("OCSP response status: UNAUTHORIZED")
         elif not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
-            raise ValueError("OCSP response status not successful")
+            raise ValueError("OCSP response status '%s' not successful" % ocsp_resp.response_status)
 
         # Save last response for possible further analysis.
         self.last_ocsp_response = ocsp_resp.public_bytes(serialization.Encoding.DER)

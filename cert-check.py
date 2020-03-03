@@ -45,6 +45,16 @@ def print_verify_result(verify_result):
 
     if certificate_info['expired']:
         failures.append('Expired')
+
+    if verify_result['certificate_from_disc']:
+        print("Cert loaded from file")
+    elif verify_result['certificate_from_host']:
+        print("Cert loaded from: %s using %s" % (
+            verify_result['certificate_from_host'], verify_result['certificate_from_connection_proto'])
+        )
+    else:
+        print("Cert loaded from ... unknown source")
+
     print("Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
     print("    %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
     print("Issuer: %s" % issuer_info)

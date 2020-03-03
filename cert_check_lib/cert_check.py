@@ -25,9 +25,16 @@ from .ocsp_check import OcspChecker
 
 class CertChecker:
     cert = None
+    cert_from_disc = False
+    cert_from_host = False
+    cert_from_host_conn_proto = None
+
+    # Extensions of cert
     aia_ext = None
     alt_name_ext = None
     key_id_ext = None
+
+    # Request results
     last_ocsp_response = None
     last_certificate_pem = None
     last_issuer_certificate_pem = None
@@ -44,6 +51,10 @@ class CertChecker:
         self.cert = x509_openssl_backend.load_pem_x509_certificate(st_cert)
         self._process_extensions()
         self.last_certificate_pem = None
+
+        self.cert_from_disc = True
+        self.cert_from_host = False
+        self.cert_from_host_conn_proto = None
 
     def load_pem_from_host(self, hostname, port, verbose=False):
         self.cert = None
@@ -81,6 +92,7 @@ class CertChecker:
         ctx.set_ocsp_client_callback(callback=_ocsp_cb, data=None)
 
         tcp_conn = socket.create_connection((hostname, port))
+        host_ip_addr = tcp_conn.getpeername()[0]
         ssl_conn = SSL.Connection(ctx, tcp_conn)
         ssl_conn.set_tlsext_host_name(hostname.encode())
         ssl_conn.request_ocsp()
@@ -96,6 +108,10 @@ class CertChecker:
         self.cert = server_cert.to_cryptography()
         self._process_extensions(verbose=verbose)
         self.last_certificate_pem = self.cert.public_bytes(serialization.Encoding.PEM)
+
+        self.cert_from_disc = False
+        self.cert_from_host = host_ip_addr
+        self.cert_from_host_conn_proto = tls_version
 
     def _process_extensions(self, verbose=False):
         self.aia_ext = None
@@ -177,6 +193,9 @@ class CertChecker:
             ocsp_data = {}
 
         verify_data = {
+            'certificate_from_disc': self.cert_from_disc,
+            'certificate_from_host': self.cert_from_host,
+            'certificate_from_connection_proto': self.cert_from_host_conn_proto,
             'certificate': {
                 'expired': is_expired,
                 'valid_from': valid_from,
@@ -260,6 +279,7 @@ class CertChecker:
         issuer_cert_key_hash.update(issuer_cert_key_bytes)
         issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
 
+        ocsp_data['issuer_key_hash_seen'] = issuer_cert_key_hash_bytes
         if issuer_cert_key_hash_bytes == ocsp_data['issuer_key_hash']:
             ocsp_data['issuer_key_hash_match'] = True
         else:
@@ -287,7 +307,7 @@ class CertChecker:
         # OBSOLETE! ends here
 
         # Response verify 3:
-        # Make sure response name hash matches target certificate issuer certificate name.
+        # Make sure response name hash matches target certificate issuer hashed certificate name.
         certificate_asn1_bytes = issuer_cert.public_bytes(serialization.Encoding.DER)
         cert_as_openssl = crypto.load_certificate(crypto.FILETYPE_ASN1, certificate_asn1_bytes)
         cert_as_openssl_subject = cert_as_openssl.get_subject()
@@ -304,6 +324,8 @@ class CertChecker:
 
         subject_hash.update(subject_bytes)
         subject_hash_bytes = subject_hash.finalize()
+
+        ocsp_data['issuer_name_hash_seen'] = subject_hash_bytes
         if subject_hash_bytes == ocsp_data['issuer_name_hash']:
             ocsp_data['issuer_name_hash_match'] = True
         else:
