@@ -62,17 +62,16 @@ def print_verify_result(verify_result):
     issuer_cert_key_hash.update(ocsp_info['issuer_public_key'])
     issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
 
-    print("Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
-    print("    %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
-    print("    Public key SHA-1: %s" % cert_key_hash_bytes.hex())
-    print("Issuer: %s" % issuer_info)
-    print("    Public key SHA-1: %s" % issuer_cert_key_hash_bytes.hex())
-    print("Subject: %s" % subject_info)
-    print("Serial #: %s" % certificate_info['serial_nro'])
-    print("Signature algo: %s" % certificate_info['signature_algorithm'])
+    print("Certificate information:")
+    print("  Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
+    print("    Validity: %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
+    print("  Subject: %s" % subject_info)
+    print("  Serial #: %s" % certificate_info['serial_nro'])
+    print("  Signature algo: %s" % certificate_info['signature_algorithm'])
+    print("  Public key SHA-1: %s" % cert_key_hash_bytes.hex())
 
     if certificate_info['dns_names'] or certificate_info['ip_addresses'] or certificate_info['urls']:
-        print("Alternate names:")
+        print("  Alternate names:")
         if certificate_info['dns_names']:
             print("    DNS-names: %s" % ', '.join(certificate_info['dns_names']))
         if certificate_info['ip_addresses']:
@@ -80,52 +79,54 @@ def print_verify_result(verify_result):
         if certificate_info['urls']:
             print("    URIs: %s" % ', '.join(certificate_info['urls']))
 
-    print("Authority Information Access (AIA):")
+    print("  Authority Information Access (AIA):")
     print("    Issuer certificate URL: %s" % certificate_info['issuer_cert_url'])
     print("    OCSP URL: %s" % certificate_info['ocsp_url'])
 
-    print("OCSP status:")
+    print("Issuer:\n  Subject:%s" % issuer_info)
+    print("  Public key SHA-1: %s" % issuer_cert_key_hash_bytes.hex())
+
+    print("OCSP status: %s" % 'pass' if verify_result['ocsp_ok'] else 'fail!')
     if verify_result['ocsp_run']:
-        print("    Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
-        print("    Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
-        print("    Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'])
-        print("    Certificate status: %s" % ocsp_info['certificate_status'].name)
-        print("    Revocation time: %s" % ocsp_info['revocation_time'])
-        print("    Revocation reason: %s" % ocsp_info['revocation_reason'])
-        print("    Produced at: %s" % ocsp_info['produced_at'])
-        print("    This update: %s" % ocsp_info['this_update'])
-        print("    Next update: %s" % ocsp_info['next_update'])
+        print("  Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
+        print("  Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
+        print("  Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'])
+        print("  Certificate status: %s" % ocsp_info['certificate_status'].name)
+        print("  Revocation time: %s" % ocsp_info['revocation_time'])
+        print("  Revocation reason: %s" % ocsp_info['revocation_reason'])
+        print("  Produced at: %s" % ocsp_info['produced_at'])
+        print("  This update: %s" % ocsp_info['this_update'])
+        print("  Next update: %s" % ocsp_info['next_update'])
 
         if ocsp_info['serial_number_match']:
-            print("    OCSP serial number: Matches certificate serial number")
+            print("  OCSP serial number: Matches certificate serial number")
         else:
             print(
-                "    OCSP serial number: %s does not match certificate serial number" % ocsp_info['serial_number'])
+                "  OCSP serial number: %s does not match certificate serial number" % ocsp_info['serial_number'])
 
         if ocsp_info['issuer_key_hash_match']:
-            print("    OCSP issuer key hash: Matches issuer certificate key %s hash" % ocsp_info['hash_algorithm'])
+            print("  OCSP issuer key hash: Matches issuer certificate key %s hash" % ocsp_info['hash_algorithm'])
         else:
-            print("    OCSP issuer key %s hash: %s does not match issuer certificate key hash" %
+            print("  OCSP issuer key %s hash: %s does not match issuer certificate key hash" %
                   (ocsp_info['hash_algorithm'], ocsp_info['issuer_key_hash'].hex()))
 
         if ocsp_info['issuer_name_hash_match']:
-            print("    OCSP issuer name hash: Matches issuer certificate name %s hash" %
+            print("  OCSP issuer name hash: Matches issuer certificate name %s hash" %
                   ocsp_info['hash_algorithm']
                   )
         else:
-            print("    OCSP issuer name %s hash: %s does not match issuer name hash" %
+            print("  OCSP issuer name %s hash: %s does not match issuer name hash" %
                   (ocsp_info['hash_algorithm'], ocsp_info['issuer_name_hash'].hex()))
 
-        if verify_result['ocsp_ok']:
-            print("OCSP pass")
-        else:
-            print("OCSP fail!")
+        if not verify_result['ocsp_ok']:
             failures.append('OCSP')
     else:
         print("OCSP not verified")
 
     if failures:
-        print("Failures: %s" % ', '.join(failures))
+        print("Done. Failures: %s" % ', '.join(failures))
+    else:
+        print("Done.")
 
 
 def main():
@@ -154,7 +155,7 @@ def main():
         if len(host_parts) == 1:
             host_parts.append(443)
         elif len(host_parts) == 2:
-            host_parts[1] = int(443)
+            host_parts[1] = int(host_parts[1])
         else:
             raise ValueError("Don't understand --connect %s!" % args.connect)
         cc.load_pem_from_host(host_parts[0], host_parts[1], verbose=not args.silent)
