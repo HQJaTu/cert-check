@@ -49,8 +49,10 @@ def print_verify_result(verify_result):
     if verify_result['certificate_from_disc']:
         print("Cert loaded from file")
     elif verify_result['certificate_from_host']:
-        print("Cert loaded from: %s using %s" % (
-            verify_result['certificate_from_host'], verify_result['certificate_from_connection_proto'])
+        connection_info = verify_result['certificate_from_host']
+        print("Cert loaded from: %s, Protocol: %s, Cipher: %d-bit %s" % (
+            connection_info['host_ip'], connection_info['protocol'],
+            connection_info['cipher_secret_size_bits'], connection_info['cipher_name'])
         )
     else:
         print("Cert loaded from ... unknown source")

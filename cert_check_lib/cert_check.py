@@ -1,4 +1,4 @@
-from OpenSSL import crypto, SSL  # pip3 install pyOpenSSL
+from OpenSSL import crypto  # pip3 install pyOpenSSL
 from OpenSSL._util import (
     ffi as _ffi,
     lib as _lib,
@@ -21,6 +21,7 @@ from cryptography.hazmat.backends.openssl.backend import (
 )
 import requests
 import socket
+import ssl
 import datetime
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
@@ -31,6 +32,8 @@ class CertChecker:
     cert_from_disc = False
     cert_from_host = False
     cert_from_host_conn_proto = None
+    cert_from_host_conn_cipher = None
+    cert_from_host_conn_cipher_bits = None
 
     # Extensions of cert
     aia_ext = None
@@ -58,63 +61,65 @@ class CertChecker:
         self.cert_from_disc = True
         self.cert_from_host = False
         self.cert_from_host_conn_proto = None
+        self.cert_from_host_conn_cipher = None
+        self.cert_from_host_conn_cipher_bits = None
 
     def load_pem_from_host(self, hostname, port, verbose=False):
         self.cert = None
-        server_cert = None
+
+        # Debug: Print the supported SSL and TLS protocols
+        if False:
+            print("SSL v3: %s" % ssl.HAS_SSLv3)
+            print("TLS v1: %s" % ssl.HAS_TLSv1)
+            print("TLS v1.1: %s" % ssl.HAS_TLSv1_1)
+            print("TLS v1.2: %s" % ssl.HAS_TLSv1_2)
+            print("TLS v1.3: %s" % ssl.HAS_TLSv1_3)
 
         # Initialize context
-        ctx = SSL.Context(SSL.TLSv1_2_METHOD)
-        tls_version = None
-        ocsp_assertion = None
+        # Context: The one with hostname verifiction
+        # ctx = ssl.create_default_context()
+        # Context: The one without hostname verifiction
+        ctx = ssl._create_unverified_context()
+        tls_versions = [ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_1, ssl.TLSVersion.TLSv1]
+        if False:
+            print("Info: Going for %s in %d" % (hostname, port))
+        for tls_version in tls_versions:
+            ctx.minimum_version = tls_version
+            a_socket = socket.socket()
+            a_socket.settimeout(5)
+            tls_socket = ctx.wrap_socket(a_socket, server_hostname=hostname)
+            try:
+                tls_socket.connect((hostname, port))
+            except socket.timeout:
+                raise ValueError("Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
+            except ssl.SSLError as exc:
+                tls_socket = None
+                message = exc.args[1]
+                if 'SSL: TLSV1_ALERT_PROTOCOL_VERSION' in message:
+                    # Decrease TLS-version and go again
+                    continue
+                raise ValueError("Failed to load certificate from %s:%d. OpenSSL failed: %s" %
+                                 (hostname, port, message)) from None
 
-        def _info_cb(conn, where_at, return_code):
-            # print("_info_cb: %d" % where_at)
-            pass
+        if not tls_socket:
+            raise ValueError("Failed to load certificate from %s:%d. No TLS-version allowed connection." %
+                             (hostname, port))
 
-        def _connection_cb(conn, cert, errnum, depth, ok):
-            nonlocal tls_version
-            nonlocal server_cert
-            # print("_connection_cb, cert: %s" % cert)
-            tls_version = conn.get_protocol_version_name()
-            # print("_connection_cb, tls_version: %s" % tls_version)
-            server_cert = cert
+        server_cert_bytes = tls_socket.getpeercert(binary_form=True)
+        host_ip_addr = tls_socket.getpeername()[0]
+        cipher_name, tls_version, cipher_secret_size_bits = tls_socket.cipher()
 
-            return True
-
-        def _ocsp_cb(conn, assertion, data):
-            nonlocal ocsp_assertion
-            ocsp_assertion = assertion
-            # print("_ocsp_cb: %d" % len(assertion))
-            # print(assertion)
-
-            return True
-
-        ctx.set_verify(SSL.VERIFY_PEER, _connection_cb)
-        ctx.set_info_callback(_info_cb)
-        ctx.set_ocsp_client_callback(callback=_ocsp_cb, data=None)
-
-        tcp_conn = socket.create_connection((hostname, port))
-        host_ip_addr = tcp_conn.getpeername()[0]
-        ssl_conn = SSL.Connection(ctx, tcp_conn)
-        ssl_conn.set_tlsext_host_name(hostname.encode())
-        ssl_conn.request_ocsp()
-        ssl_conn.set_connect_state()
-        ssl_conn.do_handshake()
-
-        if not server_cert:
-            raise ValueError("Failed to load certificate from %s:%d" % (hostname, port))
-
-        if verbose:
-            print("TLS-version used in connection: %s" % tls_version)
-            print("OCSP assertion length: %d" % len(ocsp_assertion))
-        self.cert = server_cert.to_cryptography()
+        if False:
+            print("Protocol: %s, %d-bit %s" % (tls_version, cipher_secret_size_bits, cipher_name))
+        self.cert = x509.load_der_x509_certificate(server_cert_bytes, x509_openssl_backend)
         self._process_extensions(verbose=verbose)
         self.last_certificate_pem = self.cert.public_bytes(serialization.Encoding.PEM)
 
         self.cert_from_disc = False
         self.cert_from_host = host_ip_addr
         self.cert_from_host_conn_proto = tls_version
+        self.cert_from_host_conn_cipher = cipher_name
+        self.cert_from_host_conn_cipher_bits = cipher_secret_size_bits
 
     def _process_extensions(self, verbose=False):
         self.aia_ext = None
@@ -202,10 +207,18 @@ class CertChecker:
             ocsp_stat = None
             ocsp_data = {}
 
+        if self.cert_from_host:
+            connection_info = {
+                'host_ip': self.cert_from_host,
+                'protocol': self.cert_from_host_conn_proto,
+                'cipher_name': self.cert_from_host_conn_cipher,
+                'cipher_secret_size_bits': self.cert_from_host_conn_cipher_bits
+            }
+        else:
+            connection_info = None
         verify_data = {
             'certificate_from_disc': self.cert_from_disc,
-            'certificate_from_host': self.cert_from_host,
-            'certificate_from_connection_proto': self.cert_from_host_conn_proto,
+            'certificate_from_host': connection_info,
             'certificate': {
                 'expired': is_expired,
                 'valid_from': valid_from,
