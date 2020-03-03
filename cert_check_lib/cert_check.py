@@ -19,14 +19,13 @@ from cryptography.hazmat.backends import (
 from cryptography.hazmat.backends.openssl.backend import (
     backend as x509_openssl_backend
 )
-import requests
 import socket
 import ssl
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
 import datetime
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
+from .requests import RequestsSession
+from requests import exceptions as requests_exceptions
 
 
 class CertChecker:
@@ -366,22 +365,6 @@ class CertChecker:
 
         return ocsp_stat, ocsp_data
 
-    @staticmethod
-    def _requests_retry_session(retries=3, backoff_factor=0.3, status_forcelist=(500, 502, 504), session=None):
-        session = session or requests.Session()
-        retry = Retry(
-            total=retries,
-            read=retries,
-            connect=retries,
-            backoff_factor=backoff_factor,
-            status_forcelist=status_forcelist,
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-
-        return session
-
     def _load_issuer_cert(self):
         ca_issuer_url = None
         for aia in self.aia_ext.value:
@@ -392,11 +375,11 @@ class CertChecker:
             raise ValueError("Cannot do get issuer certificate! Cert has no URL in AIA.")
 
         # Go get the issuer certificate from indicated URI
-        session = CertChecker._requests_retry_session(retries=2)
+        session = RequestsSession.get_requests_retry_session(retries=2)
         try:
             response = session.get(ca_issuer_url, timeout=CertChecker.connection_timeout / 10)
             response.raise_for_status()
-        except requests.exceptions.ConnectTimeout:
+        except requests_exceptions.ConnectTimeout:
             return None
 
         contentType = response.headers['content-type']

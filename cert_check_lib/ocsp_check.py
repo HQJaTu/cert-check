@@ -1,7 +1,9 @@
 from cryptography.x509 import ocsp
 from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
 from cryptography.hazmat.primitives import serialization
-import requests
+from .requests import RequestsSession
+from requests import exceptions as requests_exceptions
+
 
 
 class OcspChecker:
@@ -58,24 +60,35 @@ class OcspChecker:
             'Accept': '*/*',
             'Content-Type': 'application/ocsp-request'
         }
-        r = requests.post(url, headers=headers, data=ocsp_request)
-        r.raise_for_status()
-        # print("HTTP/%d, %s bytes" % (r.status_code, r.headers['content-length']))
 
-        # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
         ocsp_status = True
         ocsp_should_retry = False
-        ocsp_resp = x509_openssl_backend.load_der_ocsp_response(r.content)
-        if ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED or \
-                not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
-            ocsp_status = False
-            ocsp_should_retry = True
-            if verbose:
-                print("OCSP response status '%s' not successful" % ocsp_resp.response_status)
-
-        # Save last response for possible further analysis.
         self.last_ocsp_response = None
-        self.last_ocsp_response = ocsp_resp.public_bytes(serialization.Encoding.DER)
+
+        # Go get the issuer certificate from indicated URI
+        session = RequestsSession.get_requests_retry_session(retries=2)
+        response = None
+        try:
+            response = session.post(url, headers=headers, data=ocsp_request)
+            response.raise_for_status()
+        except requests_exceptions.ConnectTimeout:
+            ocsp_status = False
+
+        # print("HTTP/%d, %s bytes" % (response.status_code, response.headers['content-length']))
+
+        ocsp_resp = None
+        if ocsp_status:
+            # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
+            ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response.content)
+            if ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED or \
+                    not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
+                ocsp_status = False
+                ocsp_should_retry = True
+                if verbose:
+                    print("OCSP response status '%s' not successful" % ocsp_resp.response_status)
+
+            # Save last response for possible further analysis.
+            self.last_ocsp_response = ocsp_resp.public_bytes(serialization.Encoding.DER)
 
         if ocsp_status:
             ocsp_data = {
