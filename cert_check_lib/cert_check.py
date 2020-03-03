@@ -13,6 +13,9 @@ from cryptography.hazmat.primitives import (
     serialization,
     hashes
 )
+from cryptography.hazmat.backends import (
+    default_backend
+)
 from cryptography.hazmat.backends.openssl.backend import (
     backend as x509_openssl_backend
 )
@@ -160,6 +163,13 @@ class CertChecker:
         for subject_compo in subject:
             subject_info[subject_compo.oid._name] = subject_compo.value
 
+        cert_public_key = self.cert.public_key()
+        cert_key = cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
+                                                format=serialization.PublicFormat.SubjectPublicKeyInfo
+                                                )
+        cert_key_asn1, _remainder = asn1_decoder.decode(cert_key)
+        cert_key_bytes = cert_key_asn1[1].asOctets()
+
         dns_names = []
         ip_addresses = []
         urls = []
@@ -208,7 +218,8 @@ class CertChecker:
                 'ip_addresses': ip_addresses,
                 'urls': urls,
                 'issuer_cert_url': ca_issuer,
-                'ocsp_url': ocsp_uri
+                'ocsp_url': ocsp_uri,
+                'public_key': cert_key_bytes
             },
             'ocsp_run': not ocsp_stat == None,
             'ocsp_ok': ocsp_stat,
@@ -279,7 +290,7 @@ class CertChecker:
         issuer_cert_key_hash.update(issuer_cert_key_bytes)
         issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
 
-        ocsp_data['issuer_key_hash_seen'] = issuer_cert_key_hash_bytes
+        ocsp_data['issuer_public_key'] = issuer_cert_key_bytes
         if issuer_cert_key_hash_bytes == ocsp_data['issuer_key_hash']:
             ocsp_data['issuer_key_hash_match'] = True
         else:
@@ -325,7 +336,7 @@ class CertChecker:
         subject_hash.update(subject_bytes)
         subject_hash_bytes = subject_hash.finalize()
 
-        ocsp_data['issuer_name_hash_seen'] = subject_hash_bytes
+        ocsp_data['issuer_name_seen'] = subject_bytes
         if subject_hash_bytes == ocsp_data['issuer_name_hash']:
             ocsp_data['issuer_name_hash_match'] = True
         else:

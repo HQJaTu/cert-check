@@ -55,9 +55,18 @@ def print_verify_result(verify_result):
     else:
         print("Cert loaded from ... unknown source")
 
+    cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
+    cert_key_hash.update(certificate_info['public_key'])
+    cert_key_hash_bytes = cert_key_hash.finalize()
+    issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
+    issuer_cert_key_hash.update(ocsp_info['issuer_public_key'])
+    issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
+
     print("Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
     print("    %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
+    print("    Public key SHA-1: %s" % cert_key_hash_bytes.hex())
     print("Issuer: %s" % issuer_info)
+    print("    Public key SHA-1: %s" % issuer_cert_key_hash_bytes.hex())
     print("Subject: %s" % subject_info)
     print("Serial #: %s" % certificate_info['serial_nro'])
     print("Signature algo: %s" % certificate_info['signature_algorithm'])
