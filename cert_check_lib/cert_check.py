@@ -22,12 +22,17 @@ from cryptography.hazmat.backends.openssl.backend import (
 import requests
 import socket
 import ssl
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 import datetime
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
 
 
 class CertChecker:
+    DEFAULT_TIMEOUT: int = 5
+    connection_timeout = DEFAULT_TIMEOUT
+
     cert = None
     cert_from_disc = False
     cert_from_host = False
@@ -86,7 +91,7 @@ class CertChecker:
         for tls_version in tls_versions:
             ctx.minimum_version = tls_version
             a_socket = socket.socket()
-            a_socket.settimeout(5)
+            a_socket.settimeout(CertChecker.connection_timeout)
             tls_socket = ctx.wrap_socket(a_socket, server_hostname=hostname)
             try:
                 tls_socket.connect((hostname, port))
@@ -265,6 +270,9 @@ class CertChecker:
             raise ValueError("Cannot do get OCSP URI! Cert has no URL in AIA.")
 
         issuer_cert = self._load_issuer_cert()
+        if not issuer_cert:
+            return None, {}
+
         ocsp = OcspChecker(self.cert, issuer_cert)
         ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
@@ -358,24 +366,44 @@ class CertChecker:
 
         return ocsp_stat, ocsp_data
 
+    @staticmethod
+    def _requests_retry_session(retries=3, backoff_factor=0.3, status_forcelist=(500, 502, 504), session=None):
+        session = session or requests.Session()
+        retry = Retry(
+            total=retries,
+            read=retries,
+            connect=retries,
+            backoff_factor=backoff_factor,
+            status_forcelist=status_forcelist,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+
+        return session
+
     def _load_issuer_cert(self):
-        ca_issuer = None
+        ca_issuer_url = None
         for aia in self.aia_ext.value:
             if aia.access_method == x509_oid.AuthorityInformationAccessOID.CA_ISSUERS:
                 if isinstance(aia.access_location, UniformResourceIdentifier):
-                    ca_issuer = aia.access_location.value
-        if not ca_issuer:
+                    ca_issuer_url = aia.access_location.value
+        if not ca_issuer_url:
             raise ValueError("Cannot do get issuer certificate! Cert has no URL in AIA.")
 
         # Go get the issuer certificate from indicated URI
-        r = requests.get(ca_issuer)
-        r.raise_for_status()
+        session = CertChecker._requests_retry_session(retries=2)
+        try:
+            response = session.get(ca_issuer_url, timeout=CertChecker.connection_timeout / 10)
+            response.raise_for_status()
+        except requests.exceptions.ConnectTimeout:
+            return None
 
-        contentType = r.headers['content-type']
+        contentType = response.headers['content-type']
 
         if contentType in ['application/x-x509-ca-cert', 'application/pkix-cert']:
             # This is a basic DER-formatted certificate
-            issuer_cert = x509.load_der_x509_certificate(r.content, x509_openssl_backend)
+            issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
         elif contentType == 'application/pkcs7-mime':
             # This is a DER-formatted certificate wrapped into PKCS#7
 
@@ -384,7 +412,7 @@ class CertChecker:
             # For extracting a certificate out of a PKCS#7 there is no ready-made solution and this is the only
             # applicable way (for now). I'll be standing by for OpenSSL-team to come up with a proper interface for
             # certificate extraction.
-            pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, r.content)
+            pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, response.content)
 
             certs = _ffi.NULL
             if pkcs7.type_is_signed():
@@ -406,7 +434,7 @@ class CertChecker:
             issuer_cert = interim_issuer_cert.to_cryptography()
         else:
             raise ValueError("Certificate loaded from %s has content type %s. Don't know how to process it." %
-                             (ca_issuer, contentType))
+                             (ca_issuer_url, contentType))
         self.last_issuer_certificate_pem = issuer_cert.public_bytes(serialization.Encoding.PEM)
 
         return issuer_cert

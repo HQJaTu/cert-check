@@ -60,9 +60,12 @@ def print_verify_result(verify_result):
     cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
     cert_key_hash.update(certificate_info['public_key'])
     cert_key_hash_bytes = cert_key_hash.finalize()
-    issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
-    issuer_cert_key_hash.update(ocsp_info['issuer_public_key'])
-    issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
+    if ocsp_info:
+        issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
+        issuer_cert_key_hash.update(ocsp_info['issuer_public_key'])
+        issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
+    else:
+        issuer_cert_key_hash_bytes = bytes()
 
     print("Certificate information:")
     print("  Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
@@ -88,7 +91,7 @@ def print_verify_result(verify_result):
     print("Issuer:\n  Subject:%s" % issuer_info)
     print("  Public key SHA-1: %s" % issuer_cert_key_hash_bytes.hex())
 
-    print("OCSP status: %s" % 'pass' if verify_result['ocsp_ok'] else 'fail!')
+    print("OCSP status: %s" % ('pass' if verify_result['ocsp_ok'] else 'fail!'))
     if verify_result['ocsp_run']:
         print("  Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
         print("  Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
@@ -123,6 +126,7 @@ def print_verify_result(verify_result):
         if not verify_result['ocsp_ok']:
             failures.append('OCSP')
     else:
+        failures.append('OCSP')
         print("OCSP not verified")
 
     if failures:
