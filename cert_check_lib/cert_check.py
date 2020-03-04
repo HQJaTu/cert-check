@@ -273,7 +273,7 @@ class CertChecker:
             return None, {}
 
         ocsp = OcspChecker(self.cert, issuer_cert)
-        ocsp_stat, ocsp_data = ocsp.verify(ocsp_uri, verbose=verbose)
+        ocsp_stat, ocsp_data = ocsp.request(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
         if not ocsp_data['response_status_ok']:
@@ -362,6 +362,25 @@ class CertChecker:
         else:
             ocsp_stat = False
             ocsp_data['issuer_name_hash_match'] = False
+
+        # Response verify 4:
+        # RFC 6960, 4.2.2.2. Authorized Responders, https://tools.ietf.org/html/rfc6960
+        # Three rules for matching the responder:
+        #    1. Matches a local configuration of OCSP signing authority for the
+        #       certificate in question, or
+        #    2. Is the certificate of the CA that issued the certificate in
+        #       question, or
+        #    3. Includes a value of id-kp-OCSPSigning in an extended key usage
+        #       extension and is issued by the CA that issued the certificate in
+        #       question as stated above.
+        # JaTu's notes on RFC 6960, 4.2.2.2.:
+        #    1. There is no local configuration for anybody!! Never seen one in wild world.
+        #    2. This is the typical scenario covered in above code. Issuer cert handles also OCSP responses.
+        #    3. Code is missing for this scenario.
+        #    3.1. Response MUST have 'responder_key_hash'. Not all OCSP responses do.
+        #    3.2. If 'responder_key_hash' matches issuer key hash, then this is case 2.
+        #    3.3. For non-matching responder keys, we MUST get our hands to the responder certificate. From where?
+        #    3.4. Responder certificate must have extended key usage of: OCSP-responder enabled in it.
 
         return ocsp_stat, ocsp_data
 

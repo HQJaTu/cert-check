@@ -38,10 +38,15 @@ def print_verify_result(verify_result):
     ocsp_info = verify_result['ocsp']
     issuer_info = ""
     subject_info = ""
-    for issuer_compo_name in certificate_info['issuer']:
-        issuer_info += "\n    %s=%s" % (issuer_compo_name, certificate_info['issuer'][issuer_compo_name])
-    for subject_compo_name in certificate_info['subject']:
-        subject_info += "\n    %s=%s" % (subject_compo_name, certificate_info['subject'][subject_compo_name])
+    responder_info = None
+    for component_name in certificate_info['issuer']:
+        issuer_info += "\n    %s=%s" % (component_name, certificate_info['issuer'][component_name])
+    for component_name in certificate_info['subject']:
+        subject_info += "\n    %s=%s" % (component_name, certificate_info['subject'][component_name])
+    if ocsp_info['responder_name']:
+        responder_info = ""
+        for component_name in ocsp_info['responder_name']:
+            responder_info += "\n    %s=%s" % (component_name, ocsp_info['responder_name'][component_name])
 
     if certificate_info['expired']:
         failures.append('Expired')
@@ -94,6 +99,8 @@ def print_verify_result(verify_result):
     print("OCSP status: %s" % ('pass' if verify_result['ocsp_ok'] else 'fail!'))
     if verify_result['ocsp_run']:
         print("  Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
+        print("  Responder name: %s" % responder_info)
+        print("  Responder key hash: %s" % (ocsp_info['responder_key_hash'].hex() if ocsp_info['responder_key_hash'] else ''))
         print("  Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
         print("  Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'])
         print("  Certificate status: %s" % ocsp_info['certificate_status'].name)

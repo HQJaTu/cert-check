@@ -29,14 +29,14 @@ class OcspChecker:
             else:
                 raise ValueError("Don't know hash '%s'! Cannot go OCSP." % hash)
 
-    def verify(self, url, verbose=False):
+    def request(self, url, verbose=False):
         ocsp_status = None
         ocsp_data = {}
         for request_hash_class in self.request_hashes:
             request_hash = request_hash_class()
-            ocsp_status, ocsp_should_retry, ocsp_data = self._do_verify(url,
-                                                                        self.subject_cert, self.issuer_cert,
-                                                                        request_hash)
+            ocsp_status, ocsp_should_retry, ocsp_data = self._do_request(url,
+                                                                         self.subject_cert, self.issuer_cert,
+                                                                         request_hash)
             if ocsp_status:
                 # Success
                 break
@@ -50,7 +50,7 @@ class OcspChecker:
 
         return ocsp_status, ocsp_data
 
-    def _do_verify(self, url, cert, issuer_cert, hash, verbose=False):
+    def _do_request(self, url, cert, issuer_cert, hash, verbose=False):
         builder = ocsp.OCSPRequestBuilder()
         builder = builder.add_certificate(cert, issuer_cert, hash)
         self.ocsp_request = builder.build()
@@ -90,6 +90,11 @@ class OcspChecker:
             # Save last response for possible further analysis.
             self.last_ocsp_response = ocsp_resp.public_bytes(serialization.Encoding.DER)
 
+        responder_info = {}
+        if ocsp_status and ocsp_resp.responder_name:
+            for responder_component in ocsp_resp.responder_name:
+                responder_info[responder_component.oid._name] = responder_component.value
+
         if ocsp_status:
             ocsp_data = {
                 'response_status_ok': True,
@@ -97,12 +102,12 @@ class OcspChecker:
                 'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,
                 'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm.__class__.__name__,
                 'signature': ocsp_resp.signature,
-                'responder_key_hash': ocsp_resp.responder_key_hash,
                 'issuer_key_hash': ocsp_resp.issuer_key_hash,
                 'issuer_name_hash': ocsp_resp.issuer_name_hash,
                 'serial_number': ocsp_resp.serial_number,
                 'certificates': ocsp_resp.certificates,
-                'responder_name': ocsp_resp.responder_name,
+                'responder_name': responder_info,
+                'responder_key_hash': ocsp_resp.responder_key_hash,
                 'certificate_status': ocsp_resp.certificate_status,
                 'revocation_time': ocsp_resp.revocation_time,
                 'revocation_reason': ocsp_resp.revocation_reason,
@@ -120,12 +125,12 @@ class OcspChecker:
                 'hash_algorithm': None,
                 'signature_hash_algorithm': None,
                 'signature': None,
-                'responder_key_hash': None,
                 'issuer_key_hash': None,
                 'issuer_name_hash': None,
                 'serial_number': None,
                 'certificates': None,
                 'responder_name': None,
+                'responder_key_hash': None,
                 'certificate_status': ocsp.OCSPCertStatus.UNKNOWN,
                 'revocation_time': None,
                 'revocation_reason': None,
