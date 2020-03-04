@@ -4,6 +4,17 @@ This library and tool is intended to help verification of existing X.509 certifi
 Basic certificate verification includes expiry. The certificate needs not to be expired at the time of verifying.
 Also, an OCSP-check is made if certificate includes appropriate information in Authority Information Access extension.
 
+## Requirements
+* Python 3.7+
+  * PySSL is using latest features to extract all the necessary information on `--connect`.
+* OS: Tested on Linux and Windows, working on both
+
+## Installation
+1) `git clone https://github.com/HQJaTu/cert-check.git`
+1) `cd cert-check`
+1) `pip3 install .`
+1) Done!
+
 ## Usage:
 ```text
 usage: cert-check.py [-h] [--connect HOSTNAME:PORT] [--file PEM-CERT-FILE]
@@ -40,42 +51,47 @@ optional arguments:
 ```
 will result something like this:
 ```text
-TLS-version used in connection: TLSv1.2
-OCSP assertion length: 0
-Cert not expired
-    2019-01-12 00:00:00 - 2021-01-20 12:00:00
-Issuer:
-    countryName=US
-    organizationName=DigiCert Inc
-    organizationalUnitName=www.digicert.com
-    commonName=DigiCert SHA2 High Assurance Server CA
-Subject:
+Cert loaded from: 217.114.92.150, Protocol: TLSv1.2, Cipher: 128-bit ECDHE-RSA-AES128-GCM-SHA256
+Certificate information:
+  Cert not expired
+    Validity: 2019-01-12 00:00:00 - 2021-01-20 12:00:00
+  Subject:
     countryName=FI
     localityName=Helsinki
     organizationName=Business Finland Oy
     organizationalUnitName=Marketing and communications
     commonName=www.horisontti2020.fi
-Serial #: 10865345032188387016727712607843656671
-Signature algo: SHA256
-Alternate names:
+  Serial #: 10865345032188387016727712607843656671
+  Signature algo: sha256
+  Public key SHA-1: a3ee1646edfa1db59ceb7c2dc3b5b8c370e3d988
+  Alternate names:
     DNS-names: www.horisontti2020.fi, horisontti2020.fi
-Authority Information Access (AIA):
-    Issuer: http://cacerts.digicert.com/DigiCertSHA2HighAssuranceServerCA.crt
-    OCSP: http://ocsp.digicert.com
-OCSP status:
-    Request hash algorithm: SHA256
-    Response hash algorithm: SHA1
-    Response signature hash algorithm: SHA256
-    Certificate status: REVOKED
-    Revocation time: 2019-06-04 13:59:36
-    Revocation reason: None
-    Produced at: 2020-03-01 18:11:24
-    This update: 2020-03-01 18:11:24
-    Next update: 2020-03-08 17:26:24
-    OCSP serial number: Matches certificate serial number
-    OCSP issuer key hash: Matches issuer certificate key SHA1 hash
-    OCSP issuer name hash: Matches issuer certificate name SHA1 hash
-OCSP fail!
+  Authority Information Access (AIA):
+    Issuer certificate URL: http://cacerts.digicert.com/DigiCertSHA2HighAssuranceServerCA.crt
+    OCSP URL: http://ocsp.digicert.com
+Issuer:
+  Subject:
+    countryName=US
+    organizationName=DigiCert Inc
+    organizationalUnitName=www.digicert.com
+    commonName=DigiCert SHA2 High Assurance Server CA
+  Public key SHA-1: 5168ff90af0207753cccd9656462a212b859723b
+OCSP status: fail!
+  Request hash algorithm: SHA256
+  Responder name: None
+  Responder key hash: 5168ff90af0207753cccd9656462a212b859723b
+  Response hash algorithm: SHA1
+  Response signature hash algorithm: SHA256
+  Certificate status: REVOKED
+  Revocation time: 2019-06-04 13:59:36
+  Revocation reason: None
+  Produced at: 2020-03-03 18:11:30
+  This update: 2020-03-03 18:11:30
+  Next update: 2020-03-10 17:26:30
+  OCSP serial number: Matches certificate serial number
+  OCSP issuer key hash: Matches issuer certificate key SHA1 hash
+  OCSP issuer name hash: Matches issuer certificate name SHA1 hash
+Done. Failures: OCSP
 ```
 
 ### Verifying existing PEM-file
