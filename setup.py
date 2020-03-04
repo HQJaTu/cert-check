@@ -19,12 +19,11 @@ setup(
         'Intended Audience :: System Administrators',
 
         # Specify the Python versions you support here.
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8'
     ],
-    python_requires='>=3.5, <4',
-    install_requires=['PySSL', 'pyOpenSSL', 'requests', 'cryptography'],
+    python_requires='>=3.7, <4',
+    install_requires=['PySSL', 'pyOpenSSL', 'requests', 'cryptography>=2.8', 'pyasn1'],
     scripts=['cert-check.py'],
     packages=find_packages()
 )
