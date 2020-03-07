@@ -98,12 +98,12 @@ def print_verify_result(verify_result):
 
     print("OCSP status: %s" % ('pass' if verify_result['ocsp_ok'] else 'fail!'))
     if verify_result['ocsp_run']:
+        print("  Certificate status: %s" % ocsp_info['certificate_status'])
         print("  Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
         print("  Responder name: %s" % responder_info)
         print("  Responder key hash: %s" % (ocsp_info['responder_key_hash'].hex() if ocsp_info['responder_key_hash'] else ''))
         print("  Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
         print("  Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'])
-        print("  Certificate status: %s" % ocsp_info['certificate_status'].name)
         print("  Revocation time: %s" % ocsp_info['revocation_time'])
         print("  Revocation reason: %s" % ocsp_info['revocation_reason'])
         print("  Produced at: %s" % ocsp_info['produced_at'])

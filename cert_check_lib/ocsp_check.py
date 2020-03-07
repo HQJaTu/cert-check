@@ -98,6 +98,7 @@ class OcspChecker:
         if ocsp_status:
             ocsp_data = {
                 'response_status_ok': True,
+                'certificate_status': ocsp_resp.certificate_status.name,
                 'request_hash_algorithm': hash.name.upper(),
                 'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,
                 'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm.__class__.__name__,
@@ -108,7 +109,6 @@ class OcspChecker:
                 'certificates': ocsp_resp.certificates,
                 'responder_name': responder_info,
                 'responder_key_hash': ocsp_resp.responder_key_hash,
-                'certificate_status': ocsp_resp.certificate_status,
                 'revocation_time': ocsp_resp.revocation_time,
                 'revocation_reason': ocsp_resp.revocation_reason,
                 'produced_at': ocsp_resp.produced_at,
