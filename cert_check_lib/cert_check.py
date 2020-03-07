@@ -25,6 +25,7 @@ import datetime
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
 from .requests import RequestsSession
+from .exceptions import *
 from requests import exceptions as requests_exceptions
 
 
@@ -95,19 +96,20 @@ class CertChecker:
             try:
                 tls_socket.connect((hostname, port))
             except socket.timeout:
-                raise ValueError("Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
+                raise ConnectionException(
+                    "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
             except ssl.SSLError as exc:
                 tls_socket = None
                 message = exc.args[1]
                 if 'SSL: TLSV1_ALERT_PROTOCOL_VERSION' in message:
                     # Decrease TLS-version and go again
                     continue
-                raise ValueError("Failed to load certificate from %s:%d. OpenSSL failed: %s" %
-                                 (hostname, port, message)) from None
+                raise ConnectionException("Failed to load certificate from %s:%d. OpenSSL failed: %s" %
+                                          (hostname, port, message)) from None
 
         if not tls_socket:
-            raise ValueError("Failed to load certificate from %s:%d. No TLS-version allowed connection." %
-                             (hostname, port))
+            raise ConnectionException("Failed to load certificate from %s:%d. No TLS-version allowed connection." %
+                                      (hostname, port))
 
         server_cert_bytes = tls_socket.getpeercert(binary_form=True)
         host_ip_addr = tls_socket.getpeername()[0]
@@ -151,7 +153,7 @@ class CertChecker:
 
     def verify(self, ocsp=True, verbose=False):
         if not self.cert:
-            raise ValueError("Need cert! Cannot do.")
+            raise ConnectionException("Need cert! Cannot do.")
 
         issuer = self.cert.issuer
         subject = self.cert.subject
@@ -266,7 +268,7 @@ class CertChecker:
     def _verify_ocsp(self, verbose=False):
         ocsp_uri = self.ocsp_uri()
         if not ocsp_uri:
-            raise ValueError("Cannot do get OCSP URI! Cert has no URL in AIA.")
+            raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
 
         issuer_cert = self._load_issuer_cert()
         if not issuer_cert:
@@ -303,7 +305,7 @@ class CertChecker:
         elif ocsp_data['hash_algorithm'].lower() == 'sha256':
             issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
         else:
-            raise ValueError(
+            raise OCSPHashException(
                 "Cannot verify OCSP-response! Information hashed with a '%s' and I don't know how to handle it." %
                 ocsp_data['hash_algorithm'])
 
@@ -349,7 +351,7 @@ class CertChecker:
         elif ocsp_data['hash_algorithm'].lower() == 'sha256':
             subject_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
         else:
-            raise ValueError(
+            raise OCSPHashException(
                 "Cannot verify OCSP-response! Information hashed with a '%s' and I don't know how to handle it." %
                 ocsp_data['hash_algorithm'])
 
@@ -391,7 +393,7 @@ class CertChecker:
                 if isinstance(aia.access_location, UniformResourceIdentifier):
                     ca_issuer_url = aia.access_location.value
         if not ca_issuer_url:
-            raise ValueError("Cannot do get issuer certificate! Cert has no URL in AIA.")
+            raise IssuerCertificateException("Cannot do get issuer certificate! Cert has no URL in AIA.")
 
         # Go get the issuer certificate from indicated URI
         session = RequestsSession.get_requests_retry_session(retries=2)
@@ -426,7 +428,7 @@ class CertChecker:
 
             num_certs_in_pkcs7 = _lib.sk_X509_num(certs)
             if num_certs_in_pkcs7 != 1:
-                raise ValueError(
+                raise PKCS7Exception(
                     'Found PKCS#7 certificate with multiple certificates! Cannot decide which one to load.')
 
             cert_data_ptr = _lib.X509_dup(_lib.sk_X509_value(certs, 0))
@@ -435,7 +437,7 @@ class CertChecker:
 
             issuer_cert = interim_issuer_cert.to_cryptography()
         else:
-            raise ValueError("Certificate loaded from %s has content type %s. Don't know how to process it." %
+            raise MimeTypeException("Certificate loaded from %s has content type %s. Don't know how to process it." %
                              (ca_issuer_url, contentType))
         self.last_issuer_certificate_pem = issuer_cert.public_bytes(serialization.Encoding.PEM)
 

@@ -2,6 +2,7 @@ from cryptography.x509 import ocsp
 from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
 from cryptography.hazmat.primitives import serialization
 from .requests import RequestsSession
+from .exceptions import *
 from requests import exceptions as requests_exceptions
 
 
@@ -27,7 +28,7 @@ class OcspChecker:
             elif hash == 'sha1':
                 self.request_hashes.append(ocsp.hashes.SHA1)
             else:
-                raise ValueError("Don't know hash '%s'! Cannot go OCSP." % hash)
+                raise OCSPHashException("Don't know hash '%s'! Cannot go OCSP." % hash)
 
     def request(self, url, verbose=False):
         ocsp_status = None
