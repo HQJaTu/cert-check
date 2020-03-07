@@ -85,7 +85,10 @@ def print_verify_result(verify_result):
         if certificate_info['dns_names']:
             print("    DNS-names: %s" % ', '.join(certificate_info['dns_names']))
         if certificate_info['ip_addresses']:
-            print("    IP-addresses: %s" % ', '.join(certificate_info['ip_addresses']))
+            ip_info = []
+            for ip in certificate_info['ip_addresses']:
+                ip_info.append(str(ip))
+            print("    IP-addresses: %s" % ', '.join(ip_info))
         if certificate_info['urls']:
             print("    URIs: %s" % ', '.join(certificate_info['urls']))
 
