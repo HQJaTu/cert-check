@@ -97,6 +97,9 @@ class CertChecker:
             tls_socket = ctx.wrap_socket(a_socket, server_hostname=hostname)
             try:
                 tls_socket.connect((hostname, port))
+            except OSError:
+                raise ConnectionException(
+                    "Failed to load certificate from %s:%d. OS error." % (hostname, port))
             except socket.timeout:
                 raise ConnectionException(
                     "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
