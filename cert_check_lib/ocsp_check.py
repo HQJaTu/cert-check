@@ -6,7 +6,6 @@ from .exceptions import *
 from requests import exceptions as requests_exceptions
 
 
-
 class OcspChecker:
     ocsp_request = None
     last_ocsp_response = None
@@ -47,7 +46,8 @@ class OcspChecker:
                 break
 
             if verbose:
-                print("Warning! OCSP-request with %s failed. Retrying using another hash." % request_hash_class.__name__.lower())
+                print("Warning! OCSP-request with %s failed. Retrying using another hash." %
+                      request_hash_class.__name__.lower())
 
         return ocsp_status, ocsp_data
 
@@ -102,7 +102,7 @@ class OcspChecker:
                 'certificate_status': ocsp_resp.certificate_status.name,
                 'request_hash_algorithm': hash.name.upper(),
                 'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,
-                'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm.__class__.__name__,
+                'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm,
                 'signature': ocsp_resp.signature,
                 'issuer_key_hash': ocsp_resp.issuer_key_hash,
                 'issuer_name_hash': ocsp_resp.issuer_name_hash,
@@ -114,7 +114,8 @@ class OcspChecker:
                 'revocation_reason': ocsp_resp.revocation_reason,
                 'produced_at': ocsp_resp.produced_at,
                 'this_update': ocsp_resp.this_update,
-                'next_update': ocsp_resp.next_update
+                'next_update': ocsp_resp.next_update,
+                'tbs_response_bytes': ocsp_resp.tbs_response_bytes
             }
 
             if ocsp_resp.certificate_status != ocsp.OCSPCertStatus.GOOD:

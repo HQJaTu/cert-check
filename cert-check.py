@@ -58,7 +58,7 @@ def print_verify_result(verify_result):
         print("Cert loaded from: %s, Protocol: %s, Cipher: %d-bit %s" % (
             connection_info['host_ip'], connection_info['protocol'],
             connection_info['cipher_secret_size_bits'], connection_info['cipher_name'])
-        )
+              )
     else:
         print("Cert loaded from ... unknown source")
 
@@ -101,9 +101,12 @@ def print_verify_result(verify_result):
         print("  Certificate status: %s" % ocsp_info['certificate_status'])
         print("  Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
         print("  Responder name: %s" % responder_info)
-        print("  Responder key hash: %s" % (ocsp_info['responder_key_hash'].hex() if ocsp_info['responder_key_hash'] else ''))
+        print("  Responder key hash: %s" % (
+            ocsp_info['responder_key_hash'].hex() if ocsp_info['responder_key_hash'] else ''))
         print("  Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
-        print("  Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'])
+        print("  Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'].__class__.__name__)
+        print("  Response signature verify status: %s" % (
+            'Verifies ok' if ocsp_info['signature_verify_status'] else 'fail'))
         print("  Revocation time: %s" % ocsp_info['revocation_time'])
         print("  Revocation reason: %s" % ocsp_info['revocation_reason'])
         print("  Produced at: %s" % ocsp_info['produced_at'])

@@ -19,6 +19,8 @@ from cryptography.hazmat.backends import (
 from cryptography.hazmat.backends.openssl.backend import (
     backend as x509_openssl_backend
 )
+from cryptography.hazmat.primitives.asymmetric import padding
+import cryptography.exceptions
 import socket
 import ssl
 import datetime
@@ -281,7 +283,69 @@ class CertChecker:
         if not ocsp_data['response_status_ok']:
             return False, ocsp_data
 
+        # Response verify process:
+        # RFC 2560, 3.2  Signed Response Acceptance Requirements:
+        # 1) The certificate identified in a received response corresponds to
+        #    that which was identified in the corresponding request;
+        # 2) The signature on the response is valid;
+        # 3) The identity of the signer matches the intended recipient of the request.
+        # 4) The signer is currently authorized to sign the response.
+        # 5) The time at which the status being indicated is known to be correct (thisUpdate) is sufficiently recent.
+        # 6) When available, the time at or before which newer information will be available
+        #    about the status of the certificate (nextUpdate) is greater than the current time.
+
+        # Steps:
+        # 1) Serial number check
+        # 2) RSA verify with issuer key
+        # 3) If issuer hash present, matched
+        # 4) (assumption) Issuer signs the response. For more information see RFC 6960 below
+        # 5) to-do
+        # 6) to-do
+
         # Response verify 1:
+        # To-do: Verify signature
+
+        # RFC 6960, 4.2.2.2. Authorized Responders, https://tools.ietf.org/html/rfc6960
+        # Three rules for the signature of an Authorized Responder:
+        #    1. Matches a local configuration of OCSP signing authority for the
+        #       certificate in question, or
+        #    2. Is the certificate of the CA that issued the certificate in
+        #       question, or
+        #    3. Includes a value of id-kp-OCSPSigning in an extended key usage
+        #       extension and is issued by the CA that issued the certificate in
+        #       question as stated above.
+        # JaTu's notes on RFC 6960, 4.2.2.2.:
+        #    1. There is no local configuration for anybody!! Never seen one in wild world.
+        #    2. This is the typical scenario covered in above code. Issuer cert handles also OCSP responses.
+        #    3. Code is missing for this scenario.
+        #    3.1. Response MUST have 'responder_key_hash'. Not all OCSP responses do.
+        #    3.2. If 'responder_key_hash' matches issuer key hash, then this is case 2.
+        #    3.3. For non-matching responder keys, we MUST get our hands to the responder certificate. From where?
+        #    3.4. Responder certificate must have extended key usage of: OCSP-responder enabled in it.
+
+        issuer_cert_public_key = issuer_cert.public_key()
+        signature = ocsp_data['signature']
+
+        # Perform the verification.
+        signature_verifies_ok = None
+        try:
+            issuer_cert_public_key.verify(
+                signature,
+                ocsp_data['tbs_response_bytes'],
+                padding.PKCS1v15(),
+                ocsp_data['signature_hash_algorithm'],
+            )
+            signature_verifies_ok = True
+            if verbose:
+                print('Signature verification success: Payload and signature files verify')
+        except cryptography.exceptions.InvalidSignature:
+            signature_verifies_ok = False
+            if verbose:
+                print('Signature verification fail: Payload and/or signature files failed verification!')
+
+        ocsp_data['signature_verify_status'] = signature_verifies_ok
+
+        # Response verify 2:
         # Make sure response certificate serial number matches our target certificate serial
         serial_nro = self.cert.serial_number
         if serial_nro == ocsp_data['serial_number']:
@@ -290,10 +354,9 @@ class CertChecker:
             ocsp_stat = False
             ocsp_data['serial_number_match'] = False
 
-        # Response verify 2:
+        # Response verify 3:
         # Make sure response issuer key hash matches target certificate issuer certificate key hash.
         # Debug: https://lapo.it/asn1js/ or https://holtstrom.com/michael/tools/asn1decoder.php will be handy
-        issuer_cert_public_key = issuer_cert.public_key()
         issuer_cert_key = issuer_cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
                                                               format=serialization.PublicFormat.SubjectPublicKeyInfo
                                                               )
@@ -319,27 +382,7 @@ class CertChecker:
             ocsp_stat = False
             ocsp_data['issuer_key_hash_match'] = False
 
-        # OBSOLETE! begin using SHA-1 hashed SubjectKeyIdentifier
-        if False:
-            issuer_key_id_ext = None
-            extensions = x509_extensions.Extensions(issuer_cert.extensions)
-            try:
-                issuer_key_id_ext = extensions.get_extension_for_class(x509_extensions.SubjectKeyIdentifier)
-            except x509_extensions.ExtensionNotFound:
-                pass
-            if issuer_key_id_ext:
-                issuer_cert_key_hash = issuer_key_id_ext.value
-                print("Extension issuer key hash : %s" % issuer_cert_key_hash.digest.hex())
-                if issuer_cert_key_hash.digest == ocsp_data['issuer_key_hash']:
-                    ocsp_data['issuer_key_hash_match'] = True
-                else:
-                    ocsp_stat = False
-                    ocsp_data['issuer_key_hash_match'] = False
-            else:
-                ocsp_stat = False
-        # OBSOLETE! ends here
-
-        # Response verify 3:
+        # Response verify 4:
         # Make sure response name hash matches target certificate issuer hashed certificate name.
         certificate_asn1_bytes = issuer_cert.public_bytes(serialization.Encoding.DER)
         cert_as_openssl = crypto.load_certificate(crypto.FILETYPE_ASN1, certificate_asn1_bytes)
@@ -365,24 +408,7 @@ class CertChecker:
             ocsp_stat = False
             ocsp_data['issuer_name_hash_match'] = False
 
-        # Response verify 4:
-        # RFC 6960, 4.2.2.2. Authorized Responders, https://tools.ietf.org/html/rfc6960
-        # Three rules for matching the responder:
-        #    1. Matches a local configuration of OCSP signing authority for the
-        #       certificate in question, or
-        #    2. Is the certificate of the CA that issued the certificate in
-        #       question, or
-        #    3. Includes a value of id-kp-OCSPSigning in an extended key usage
-        #       extension and is issued by the CA that issued the certificate in
-        #       question as stated above.
-        # JaTu's notes on RFC 6960, 4.2.2.2.:
-        #    1. There is no local configuration for anybody!! Never seen one in wild world.
-        #    2. This is the typical scenario covered in above code. Issuer cert handles also OCSP responses.
-        #    3. Code is missing for this scenario.
-        #    3.1. Response MUST have 'responder_key_hash'. Not all OCSP responses do.
-        #    3.2. If 'responder_key_hash' matches issuer key hash, then this is case 2.
-        #    3.3. For non-matching responder keys, we MUST get our hands to the responder certificate. From where?
-        #    3.4. Responder certificate must have extended key usage of: OCSP-responder enabled in it.
+        # Verify done!
 
         return ocsp_stat, ocsp_data
 
@@ -438,7 +464,7 @@ class CertChecker:
             issuer_cert = interim_issuer_cert.to_cryptography()
         else:
             raise MimeTypeException("Certificate loaded from %s has content type %s. Don't know how to process it." %
-                             (ca_issuer_url, contentType))
+                                    (ca_issuer_url, contentType))
         self.last_issuer_certificate_pem = issuer_cert.public_bytes(serialization.Encoding.PEM)
 
         return issuer_cert
