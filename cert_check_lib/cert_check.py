@@ -470,7 +470,42 @@ class CertChecker:
         if 'content-type' in response.headers:
             contentType = response.headers['content-type']
         else:
-            # No Content-Type given. Let's guess!
+            contentType = ""
+
+        if contentType in ['application/x-x509-ca-cert', 'application/pkix-cert']:
+            # This is a basic DER-formatted certificate
+            issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
+        elif contentType == 'application/pkcs7-mime':
+            # This is a DER-formatted certificate wrapped into PKCS#7
+
+            # DANGER! DANGER! DANGER!
+            # Digging into guts of OpenSSL isn't smart. It's stupid. Very stupid.
+            # For extracting a certificate out of a PKCS#7 there is no ready-made solution and this is the only
+            # applicable way (for now). I'll be standing by for OpenSSL-team to come up with a proper interface for
+            # certificate extraction.
+            pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, response.content)
+
+            certs = _ffi.NULL
+            if pkcs7.type_is_signed():
+                certs = pkcs7._pkcs7.d.sign.cert
+            elif pkcs7.type_is_enveloped():
+                certs = pkcs7._pkcs7.d.enveloped.cert
+            elif pkcs7.type_is_signedAndEnveloped():
+                certs = pkcs7._pkcs7.d.signed_and_enveloped.cert
+
+            num_certs_in_pkcs7 = _lib.sk_X509_num(certs)
+            if num_certs_in_pkcs7 != 1:
+                raise PKCS7Exception(
+                    'Found PKCS#7 certificate with multiple certificates! Cannot decide which one to load.')
+
+            cert_data_ptr = _lib.X509_dup(_lib.sk_X509_value(certs, 0))
+            interim_issuer_cert = crypto.X509._from_raw_x509_ptr(cert_data_ptr)
+            # end DANGER! DANGER! DANGER! end
+
+            issuer_cert = interim_issuer_cert.to_cryptography()
+        else:
+            # No Content-Type given or we don't know that particular Content-Type.
+            # Let's guess!
             try:
                 issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
                 response.headers['content-type'] = 'application/x-x509-ca-cert'
@@ -483,39 +518,7 @@ class CertChecker:
                     raise IssuerCertificateException(
                         'Cannot do get issuer certificate! No idea on how to process response from %s' % ca_issuer_url)
 
-        if not issuer_cert:
-            if contentType in ['application/x-x509-ca-cert', 'application/pkix-cert']:
-                # This is a basic DER-formatted certificate
-                issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
-            elif contentType == 'application/pkcs7-mime':
-                # This is a DER-formatted certificate wrapped into PKCS#7
-
-                # DANGER! DANGER! DANGER!
-                # Digging into guts of OpenSSL isn't smart. It's stupid. Very stupid.
-                # For extracting a certificate out of a PKCS#7 there is no ready-made solution and this is the only
-                # applicable way (for now). I'll be standing by for OpenSSL-team to come up with a proper interface for
-                # certificate extraction.
-                pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, response.content)
-
-                certs = _ffi.NULL
-                if pkcs7.type_is_signed():
-                    certs = pkcs7._pkcs7.d.sign.cert
-                elif pkcs7.type_is_enveloped():
-                    certs = pkcs7._pkcs7.d.enveloped.cert
-                elif pkcs7.type_is_signedAndEnveloped():
-                    certs = pkcs7._pkcs7.d.signed_and_enveloped.cert
-
-                num_certs_in_pkcs7 = _lib.sk_X509_num(certs)
-                if num_certs_in_pkcs7 != 1:
-                    raise PKCS7Exception(
-                        'Found PKCS#7 certificate with multiple certificates! Cannot decide which one to load.')
-
-                cert_data_ptr = _lib.X509_dup(_lib.sk_X509_value(certs, 0))
-                interim_issuer_cert = crypto.X509._from_raw_x509_ptr(cert_data_ptr)
-                # end DANGER! DANGER! DANGER! end
-
-                issuer_cert = interim_issuer_cert.to_cryptography()
-            else:
+            if not issuer_cert:
                 raise MimeTypeException(
                     "Certificate loaded from %s has content type %s. Don't know how to process it." %
                     (ca_issuer_url, contentType))
