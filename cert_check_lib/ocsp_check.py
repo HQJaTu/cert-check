@@ -4,6 +4,7 @@ from cryptography.hazmat.primitives import serialization
 from .requests import RequestsSession
 from .exceptions import *
 from requests import exceptions as requests_exceptions
+import time
 
 
 class OcspChecker:
@@ -69,11 +70,17 @@ class OcspChecker:
         # Go get the issuer certificate from indicated URI
         session = RequestsSession.get_requests_retry_session(retries=2)
         response = None
-        try:
-            response = session.post(url, headers=headers, data=ocsp_request)
-            response.raise_for_status()
-        except requests_exceptions.ConnectTimeout:
-            ocsp_status = False
+        attempts_left = 5
+        while not response and attempts_left > 0:
+            attempts_left -= 1
+            try:
+                response = session.post(url, headers=headers, data=ocsp_request)
+                response.raise_for_status()
+            except requests_exceptions.ConnectTimeout:
+                ocsp_status = False
+            except requests_exceptions.ConnectionError:
+                time.sleep(5)
+                continue
 
         # print("HTTP/%d, %s bytes" % (response.status_code, response.headers['content-length']))
 
