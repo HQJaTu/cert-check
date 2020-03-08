@@ -575,6 +575,10 @@ class CertChecker:
         except requests_exceptions.InvalidSchema:
             # Example: ldap://
             return None
+        except requests_exceptions.SSLError:
+            # Weird ones.
+            # Serving issuer certificate via HTTPS is.... stupid.
+            return None
 
         issuer_cert = None
         if 'content-type' in response.headers:
