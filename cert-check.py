@@ -78,7 +78,7 @@ def print_verify_result(verify_result):
     print("  Subject: %s" % subject_info)
     print("  Serial #: %s" % certificate_info['serial_nro'])
     print("  Signature algo: %s" % certificate_info['signature_algorithm'])
-    print("  Public key SHA-1: %s" % cert_key_hash_bytes.hex())
+    print("  Public key (%s) SHA-1: %s" % (certificate_info['public_key_type'], cert_key_hash_bytes.hex()))
 
     if certificate_info['dns_names'] or certificate_info['ip_addresses'] or certificate_info['urls']:
         print("  Alternate names:")
@@ -97,7 +97,7 @@ def print_verify_result(verify_result):
     print("    OCSP URL: %s" % certificate_info['ocsp_url'])
 
     print("Issuer:\n  Subject:%s" % issuer_info)
-    print("  Public key SHA-1: %s" % issuer_cert_key_hash_bytes.hex())
+    print("  Public key (%s) SHA-1: %s" % (ocsp_info['issuer_public_key_type'], issuer_cert_key_hash_bytes.hex()))
 
     print("OCSP status: %s" % ('pass' if verify_result['ocsp_ok'] else 'fail!'))
     if verify_result['ocsp_run']:

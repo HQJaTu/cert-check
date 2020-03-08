@@ -11,7 +11,8 @@ from cryptography.x509 import (
 )
 from cryptography.hazmat.primitives import (
     serialization,
-    hashes
+    hashes,
+    asymmetric
 )
 from cryptography.hazmat.backends import (
     default_backend
@@ -19,7 +20,6 @@ from cryptography.hazmat.backends import (
 from cryptography.hazmat.backends.openssl.backend import (
     backend as x509_openssl_backend
 )
-from cryptography.hazmat.primitives.asymmetric import padding
 import cryptography.exceptions
 import socket
 import ssl
@@ -185,6 +185,7 @@ class CertChecker:
                                                 )
         cert_key_asn1, _remainder = asn1_decoder.decode(cert_key)
         cert_key_bytes = cert_key_asn1[1].asOctets()
+        public_key_type = cert_public_key.__class__.__name__
 
         dns_names = []
         ip_addresses = []
@@ -243,7 +244,8 @@ class CertChecker:
                 'urls': urls,
                 'issuer_cert_url': ca_issuer,
                 'ocsp_url': ocsp_uri,
-                'public_key': cert_key_bytes
+                'public_key': cert_key_bytes,
+                'public_key_type': public_key_type[1:]
             },
             'ocsp_run': not ocsp_stat == None,
             'ocsp_ok': ocsp_stat,
@@ -289,7 +291,9 @@ class CertChecker:
                                                               )
         issuer_cert_key_asn1, _remainder = asn1_decoder.decode(issuer_cert_key)
         issuer_cert_key_bytes = issuer_cert_key_asn1[1].asOctets()
+        issuer_public_key_type = issuer_cert_public_key.__class__.__name__
         ocsp_data['issuer_public_key'] = issuer_cert_key_bytes
+        ocsp_data['issuer_public_key_type'] = issuer_public_key_type[1:]
 
         if not ocsp_data['response_status_ok']:
             return False, ocsp_data
@@ -338,20 +342,50 @@ class CertChecker:
 
         # Perform the verification.
         signature_verifies_ok = None
-        try:
-            issuer_cert_public_key.verify(
-                signature,
-                ocsp_data['tbs_response_bytes'],
-                padding.PKCS1v15(),
-                ocsp_data['signature_hash_algorithm'],
-            )
-            signature_verifies_ok = True
-            if verbose:
-                print('Signature verification success: Payload and signature files verify')
-        except cryptography.exceptions.InvalidSignature:
-            signature_verifies_ok = False
-            if verbose:
-                print('Signature verification fail: Payload and/or signature files failed verification!')
+        if issuer_public_key_type == '_RSAPublicKey':
+            try:
+                issuer_cert_public_key.verify(
+                    signature,
+                    ocsp_data['tbs_response_bytes'],
+                    asymmetric.padding.PKCS1v15(),
+                    ocsp_data['signature_hash_algorithm'],
+                )
+                signature_verifies_ok = True
+            except cryptography.exceptions.InvalidSignature:
+                signature_verifies_ok = False
+        elif issuer_public_key_type == '_DSAPublicKey':
+            pass
+        elif issuer_public_key_type == '_EllipticCurvePublicKey':
+            ecdsa_algorithm = asymmetric.ec.ECDSA(ocsp_data['signature_hash_algorithm'])
+            try:
+                issuer_cert_public_key.verify(
+                    signature,
+                    ocsp_data['tbs_response_bytes'],
+                    ecdsa_algorithm
+                )
+                signature_verifies_ok = True
+            except cryptography.exceptions.InvalidSignature:
+                signature_verifies_ok = False
+        elif issuer_public_key_type == '_DHPublicKey':
+            pass
+        elif issuer_public_key_type == '_Ed25519PublicKey':
+            pass
+        elif issuer_public_key_type == '_X448PublicKey':
+            pass
+        elif issuer_public_key_type == '_X25519PublicKey':
+            pass
+        elif issuer_public_key_type == '_Ed448PublicKey':
+            pass
+        else:
+            raise UnsupportedPublicKeyAlgorithmException("Unsupported key type: %s" % issuer_public_key_type)
+
+        if verbose:
+            if signature_verifies_ok:
+                print('%s: Signature verification success: Payload and signature files verify' %
+                      issuer_public_key_type)
+            else:
+                print('%s: Signature verification fail: Payload and/or signature files failed verification!' %
+                      issuer_public_key_type)
 
         ocsp_data['signature_verify_status'] = signature_verifies_ok
 
@@ -482,8 +516,9 @@ class CertChecker:
 
                 issuer_cert = interim_issuer_cert.to_cryptography()
             else:
-                raise MimeTypeException("Certificate loaded from %s has content type %s. Don't know how to process it." %
-                                        (ca_issuer_url, contentType))
+                raise MimeTypeException(
+                    "Certificate loaded from %s has content type %s. Don't know how to process it." %
+                    (ca_issuer_url, contentType))
 
         # Store the issuer certificate also in PEM-format for possible use.
         self.last_issuer_certificate_pem = issuer_cert.public_bytes(serialization.Encoding.PEM)

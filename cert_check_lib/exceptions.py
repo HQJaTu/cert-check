@@ -23,3 +23,6 @@ class PKCS7Exception(Exception):
 class MimeTypeException(Exception):
     pass
 
+
+class UnsupportedPublicKeyAlgorithmException(Exception):
+    pass
