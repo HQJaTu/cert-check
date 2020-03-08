@@ -480,8 +480,18 @@ class CertChecker:
             contentType = ""
 
         if contentType in ['application/x-x509-ca-cert', 'application/pkix-cert']:
-            # This is a basic DER-formatted certificate
-            issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
+            # This is a basic certificate
+            try:
+                # Is DER-formatted?
+                issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
+            except ValueError as exc:
+                issuer_cert = None
+            if not issuer_cert:
+                try:
+                    issuer_cert = x509.load_pem_x509_certificate(response.content, x509_openssl_backend)
+                except ValueError:
+                    raise IssuerCertificateException(
+                        'Cannot do get issuer certificate! No idea on how to process response from %s' % ca_issuer_url)
         elif contentType == 'application/pkcs7-mime':
             # This is a DER-formatted certificate wrapped into PKCS#7
 
@@ -515,7 +525,6 @@ class CertChecker:
             # Let's guess!
             try:
                 issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
-                response.headers['content-type'] = 'application/x-x509-ca-cert'
             except TypeError:
                 issuer_cert = None
             if not issuer_cert:
