@@ -23,7 +23,7 @@ from cryptography.hazmat.backends.openssl.backend import (
 import cryptography.exceptions
 import socket
 import ssl
-import datetime
+from datetime import datetime, timedelta
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
 from .requests import RequestsSession
@@ -33,7 +33,9 @@ from requests import exceptions as requests_exceptions
 
 class CertChecker:
     DEFAULT_TIMEOUT: int = 5
+    DEFAULT_OCSP_RESPONSE_EXPIRY_DAYS: int = 7
     connection_timeout = DEFAULT_TIMEOUT
+    ocsp_response_expiry_days = DEFAULT_OCSP_RESPONSE_EXPIRY_DAYS
 
     cert = None
     cert_from_disc = False
@@ -166,7 +168,7 @@ class CertChecker:
         sig_algo = self.cert.signature_hash_algorithm.__class__.__name__.lower()
         valid_from = self.cert.not_valid_before
         valid_to = self.cert.not_valid_after
-        now = datetime.datetime.utcnow()
+        now = datetime.utcnow()
         if now < valid_from or now > valid_to:
             is_expired = True
         else:
@@ -302,6 +304,8 @@ class CertChecker:
         if not ocsp_data['response_status_ok']:
             return False, ocsp_data
 
+        now = datetime.utcnow()
+
         # Response verify process:
         # RFC 2560, 3.2  Signed Response Acceptance Requirements:
         # 1) The certificate identified in a received response corresponds to
@@ -320,8 +324,8 @@ class CertChecker:
         # 4) Either (For more information see RFC 6960 below):
         # 4.1) Issuer signs the response
         # 4.1) OCSP-certificate signs the response
-        # 5) to-do
-        # 6) to-do
+        # 5) Added check for OCSP-response data to be (by default) 7 days old, at max.
+        # 6) If next update information is available, it needs to be in the future.
 
         # Response verify 1:
         # To-do: Verify signature
@@ -450,6 +454,32 @@ class CertChecker:
         else:
             ocsp_stat = False
             ocsp_data['issuer_name_hash_match'] = False
+
+        # Response verify 4:
+        # OCSP-response this update time is "sufficiently recent".
+        # If next update is available, use that as a criteria for "sufficiently recent".
+        update_time_ok = None
+        response_created = now - timedelta(days=CertChecker.ocsp_response_expiry_days)
+
+        this_update = now - ocsp_data['this_update']
+        print(this_update.total_seconds())
+        if this_update.total_seconds() > 0:
+            # Good. Update was in past.
+            if ocsp_data['next_update']:
+                if ocsp_data['next_update'] < now:
+                    # Response information is expired.
+                    update_time_ok = False
+            if update_time_ok == None and ocsp_data['this_update'] > response_created:
+                # Information is not expired and was created within our allowed range.
+                update_time_ok = True
+            else:
+                # Information is not expired but is older than we allow.
+                update_time_ok = False
+        else:
+            # What? Update is in the future.
+            update_time_ok = False
+
+        ocsp_data['update_time_ok'] = update_time_ok
 
         # Verify done!
 

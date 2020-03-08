@@ -147,7 +147,10 @@ class OcspChecker:
                 'next_update': None,
                 'serial_number_match': None,
                 'issuer_key_hash_match': None,
-                'issuer_name_hash_match': None
+                'issuer_name_hash_match': None,
+                'signature_verify_ocsp_cert_used': None,
+                'signature_verify_ocsp_cert_valid': None,
+                'update_time_ok': None
             }
 
         return ocsp_status, ocsp_should_retry, ocsp_data

@@ -121,7 +121,9 @@ def print_verify_result(verify_result):
         print("  Revocation time: %s" % ocsp_info['revocation_time'])
         print("  Revocation reason: %s" % ocsp_info['revocation_reason'])
         print("  Produced at: %s" % ocsp_info['produced_at'])
-        print("  This update: %s" % ocsp_info['this_update'])
+        print("  This update: %s, %s" % (
+            ocsp_info['this_update'],
+            'valid' if ocsp_info['update_time_ok'] else 'expired' if ocsp_info['update_time_ok'] == False else '-'))
         print("  Next update: %s" % ocsp_info['next_update'])
 
         if ocsp_info['serial_number_match']:
