@@ -387,7 +387,7 @@ class CertChecker:
         if ocsp_certificate_used and signature_verifies_ok and not ocsp_certificate_valid:
             signature_verifies_ok = False
 
-        if verbose:
+        if False and verbose:
             if signature_verifies_ok:
                 print('%s: Signature verification success: Payload and signature files verify' %
                       issuer_public_key_type)
@@ -462,7 +462,6 @@ class CertChecker:
         response_created = now - timedelta(days=CertChecker.ocsp_response_expiry_days)
 
         this_update = now - ocsp_data['this_update']
-        print(this_update.total_seconds())
         if this_update.total_seconds() > 0:
             # Good. Update was in past.
             if ocsp_data['next_update']:
@@ -480,6 +479,8 @@ class CertChecker:
             update_time_ok = False
 
         ocsp_data['update_time_ok'] = update_time_ok
+        if not update_time_ok:
+            ocsp_stat = False
 
         # Verify done!
 
