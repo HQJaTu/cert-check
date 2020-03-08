@@ -63,7 +63,7 @@ Certificate information:
     commonName=www.horisontti2020.fi
   Serial #: 10865345032188387016727712607843656671
   Signature algo: sha256
-  Public key SHA-1: a3ee1646edfa1db59ceb7c2dc3b5b8c370e3d988
+  Public key (RSAPublicKey) SHA-1: a3ee1646edfa1db59ceb7c2dc3b5b8c370e3d988
   Alternate names:
     DNS-names: www.horisontti2020.fi, horisontti2020.fi
   Authority Information Access (AIA):
@@ -75,19 +75,20 @@ Issuer:
     organizationName=DigiCert Inc
     organizationalUnitName=www.digicert.com
     commonName=DigiCert SHA2 High Assurance Server CA
-  Public key SHA-1: 5168ff90af0207753cccd9656462a212b859723b
+  Public key (RSAPublicKey) SHA-1: 5168ff90af0207753cccd9656462a212b859723b
 OCSP status: fail!
+  Certificate status: REVOKED
   Request hash algorithm: SHA256
-  Responder name: None
+  Responder name:
   Responder key hash: 5168ff90af0207753cccd9656462a212b859723b
   Response hash algorithm: SHA1
   Response signature hash algorithm: SHA256
-  Certificate status: REVOKED
+  Response signature verify status: Verifies ok, used issuer certificate
   Revocation time: 2019-06-04 13:59:36
   Revocation reason: None
-  Produced at: 2020-03-03 18:11:30
-  This update: 2020-03-03 18:11:30
-  Next update: 2020-03-10 17:26:30
+  Produced at: 2020-03-07 18:09:01
+  This update: 2020-03-07 18:09:01, valid
+  Next update: 2020-03-14 17:24:01
   OCSP serial number: Matches certificate serial number
   OCSP issuer key hash: Matches issuer certificate key SHA1 hash
   OCSP issuer name hash: Matches issuer certificate name SHA1 hash
