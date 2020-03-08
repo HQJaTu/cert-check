@@ -566,6 +566,10 @@ class CertChecker:
         try:
             response = session.get(ca_issuer_url, timeout=CertChecker.connection_timeout / 10)
             response.raise_for_status()
+        except requests_exceptions.HTTPError as exc:
+            if exc.response.status_code not in [404, 500]:
+                raise
+            return None
         except requests_exceptions.ConnectTimeout:
             return None
         except requests_exceptions.InvalidSchema:
