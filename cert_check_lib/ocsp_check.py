@@ -119,7 +119,8 @@ class OcspChecker:
                 'serial_number_match': None,
                 'issuer_key_hash_match': None,
                 'issuer_name_hash_match': None,
-                'tbs_response_bytes': ocsp_resp.tbs_response_bytes
+                'tbs_response_bytes': ocsp_resp.tbs_response_bytes,
+                'ocsp_certificates': ocsp_resp.certificates
             }
 
             if ocsp_resp.certificate_status != ocsp.OCSPCertStatus.GOOD:

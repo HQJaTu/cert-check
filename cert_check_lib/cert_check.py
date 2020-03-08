@@ -317,7 +317,9 @@ class CertChecker:
         # 1) Serial number check
         # 2) RSA verify with issuer key
         # 3) If issuer hash present, matched
-        # 4) (assumption) Issuer signs the response. For more information see RFC 6960 below
+        # 4) Either (For more information see RFC 6960 below):
+        # 4.1) Issuer signs the response
+        # 4.1) OCSP-certificate signs the response
         # 5) to-do
         # 6) to-do
 
@@ -336,52 +338,50 @@ class CertChecker:
         # JaTu's notes on RFC 6960, 4.2.2.2.:
         #    1. There is no local configuration for anybody!! Never seen one in wild world.
         #    2. This is the typical scenario covered in above code. Issuer cert handles also OCSP responses.
-        #    3. Code is missing for this scenario.
-        #    3.1. Response MUST have 'responder_key_hash'. Not all OCSP responses do.
-        #    3.2. If 'responder_key_hash' matches issuer key hash, then this is case 2.
-        #    3.3. For non-matching responder keys, we MUST get our hands to the responder certificate. From where?
-        #    3.4. Responder certificate must have extended key usage of: OCSP-responder enabled in it.
+        #    3. X.509 certificate to verify against is returned in OCSP-response
 
         signature = ocsp_data['signature']
 
+        # Assume verifying with issuer public key
+        ocsp_certificate_used = False
+        ocsp_certificate_valid = None
+        verification_public_key_type = issuer_public_key_type
+        verification_public_key = issuer_cert_public_key
+
+        if ocsp_data['ocsp_certificates']:
+            # Multiple certificates returned?
+            if verbose and len(ocsp_data['ocsp_certificates']) > 1:
+                print("Warning: OCSP-response has multiple certificates!")
+            # Use the first one
+            verification_certificate = ocsp_data['ocsp_certificates'][0]
+            verification_public_key = verification_certificate.public_key()
+            verification_public_key_type = verification_public_key.__class__.__name__
+            ocsp_certificate_used = True
+
+            # Check for id-kp-OCSPSigning
+            extensions = x509_extensions.Extensions(verification_certificate.extensions)
+            try:
+                extended_key_usage_name_exts = extensions.get_extension_for_class(x509_extensions.ExtendedKeyUsage)
+            except x509_extensions.ExtensionNotFound:
+                extended_key_usage_name_exts = None
+
+            ocsp_certificate_valid = False
+            if extended_key_usage_name_exts:
+                if x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_exts.value._usages:
+                    ocsp_certificate_valid = True
+
+            # Tinker with return data
+            del ocsp_data['ocsp_certificates']
+            ocsp_data['ocsp_certificate'] = verification_certificate
+
         # Perform the verification.
-        signature_verifies_ok = None
-        if issuer_public_key_type == '_RSAPublicKey':
-            try:
-                issuer_cert_public_key.verify(
-                    signature,
-                    ocsp_data['tbs_response_bytes'],
-                    asymmetric.padding.PKCS1v15(),
-                    ocsp_data['signature_hash_algorithm'],
-                )
-                signature_verifies_ok = True
-            except cryptography.exceptions.InvalidSignature:
-                signature_verifies_ok = False
-        elif issuer_public_key_type == '_DSAPublicKey':
-            pass
-        elif issuer_public_key_type == '_EllipticCurvePublicKey':
-            ecdsa_algorithm = asymmetric.ec.ECDSA(ocsp_data['signature_hash_algorithm'])
-            try:
-                issuer_cert_public_key.verify(
-                    signature,
-                    ocsp_data['tbs_response_bytes'],
-                    ecdsa_algorithm
-                )
-                signature_verifies_ok = True
-            except cryptography.exceptions.InvalidSignature:
-                signature_verifies_ok = False
-        elif issuer_public_key_type == '_DHPublicKey':
-            pass
-        elif issuer_public_key_type == '_Ed25519PublicKey':
-            pass
-        elif issuer_public_key_type == '_X448PublicKey':
-            pass
-        elif issuer_public_key_type == '_X25519PublicKey':
-            pass
-        elif issuer_public_key_type == '_Ed448PublicKey':
-            pass
-        else:
-            raise UnsupportedPublicKeyAlgorithmException("Unsupported key type: %s" % issuer_public_key_type)
+        signature_verifies_ok = self._verify_signature(verification_public_key_type,
+                                                       verification_public_key,
+                                                       signature, ocsp_data['tbs_response_bytes'],
+                                                       ocsp_data['signature_hash_algorithm'])
+        # Apply RFC 6960, 4.2.2.2. rule 3), if applicable
+        if ocsp_certificate_used and signature_verifies_ok and not ocsp_certificate_valid:
+            signature_verifies_ok = False
 
         if verbose:
             if signature_verifies_ok:
@@ -392,6 +392,8 @@ class CertChecker:
                       issuer_public_key_type)
 
         ocsp_data['signature_verify_status'] = signature_verifies_ok
+        ocsp_data['signature_verify_ocsp_cert_used'] = ocsp_certificate_used
+        ocsp_data['signature_verify_ocsp_cert_valid'] = ocsp_certificate_valid
 
         # Response verify 2:
         # Make sure response certificate serial number matches our target certificate serial
@@ -452,6 +454,49 @@ class CertChecker:
         # Verify done!
 
         return ocsp_stat, ocsp_data
+
+    @staticmethod
+    def _verify_signature(public_key_type, public_key, signature, payload, hash_algorithm):
+        signature_verifies_ok = None
+
+        if public_key_type == '_RSAPublicKey':
+            try:
+                public_key.verify(
+                    signature,
+                    payload,
+                    asymmetric.padding.PKCS1v15(),
+                    hash_algorithm,
+                )
+                signature_verifies_ok = True
+            except cryptography.exceptions.InvalidSignature:
+                signature_verifies_ok = False
+        elif public_key_type == '_DSAPublicKey':
+            pass
+        elif public_key_type == '_EllipticCurvePublicKey':
+            ecdsa_algorithm = asymmetric.ec.ECDSA(hash_algorithm)
+            try:
+                public_key.verify(
+                    signature,
+                    payload,
+                    ecdsa_algorithm
+                )
+                signature_verifies_ok = True
+            except cryptography.exceptions.InvalidSignature:
+                signature_verifies_ok = False
+        elif public_key_type == '_DHPublicKey':
+            pass
+        elif public_key_type == '_Ed25519PublicKey':
+            pass
+        elif public_key_type == '_X448PublicKey':
+            pass
+        elif public_key_type == '_X25519PublicKey':
+            pass
+        elif public_key_type == '_Ed448PublicKey':
+            pass
+        else:
+            raise UnsupportedPublicKeyAlgorithmException("Unsupported key type: %s" % public_key_type)
+
+        return signature_verifies_ok
 
     def _load_issuer_cert(self):
         ca_issuer_url = None

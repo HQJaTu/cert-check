@@ -111,8 +111,13 @@ def print_verify_result(verify_result):
             ocsp_info['responder_key_hash'].hex() if ocsp_info['responder_key_hash'] else ''))
         print("  Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
         print("  Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'].__class__.__name__)
-        print("  Response signature verify status: %s" % (
-            'Verifies ok' if ocsp_info['signature_verify_status'] else 'fail'))
+        print("  Response signature verify status: %s, used %s%s certificate" % (
+            'Verifies ok' if ocsp_info['signature_verify_status'] else 'fail',
+            'invalid ' if ocsp_info['signature_verify_ocsp_cert_used'] and not ocsp_info[
+                'signature_verify_ocsp_cert_valid'] else 'valid ' if ocsp_info[
+                'signature_verify_ocsp_cert_used'] else '',
+            'OCSP' if ocsp_info['signature_verify_ocsp_cert_used'] else 'issuer'
+        ))
         print("  Revocation time: %s" % ocsp_info['revocation_time'])
         print("  Revocation reason: %s" % ocsp_info['revocation_reason'])
         print("  Produced at: %s" % ocsp_info['produced_at'])
