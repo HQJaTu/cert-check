@@ -469,6 +469,9 @@ class CertChecker:
             response.raise_for_status()
         except requests_exceptions.ConnectTimeout:
             return None
+        except requests_exceptions.InvalidSchema:
+            # Example: ldap://
+            return None
 
         issuer_cert = None
         if 'content-type' in response.headers:
