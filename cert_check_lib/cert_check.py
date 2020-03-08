@@ -287,10 +287,8 @@ class CertChecker:
         if not issuer_cert:
             return None, {}
 
-        ocsp = OcspChecker(self.cert, issuer_cert)
-        ocsp_stat, ocsp_data = ocsp.request(ocsp_uri, verbose=verbose)
-        self.last_ocsp_response = ocsp.last_ocsp_response
-
+        # Sanity check:
+        # Is the certificate being investigated issued by the alleged "issuer" certificate we just loaded?
         issuer_cert_public_key = issuer_cert.public_key()
         issuer_cert_key = issuer_cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
                                                               format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -298,6 +296,21 @@ class CertChecker:
         issuer_cert_key_asn1, _remainder = asn1_decoder.decode(issuer_cert_key)
         issuer_cert_key_bytes = issuer_cert_key_asn1[1].asOctets()
         issuer_public_key_type = issuer_cert_public_key.__class__.__name__
+
+        # Perform the OCSP-response signature verification.
+        certificate_verifies_ok = self._verify_signature(issuer_public_key_type,
+                                                         issuer_cert_public_key,
+                                                         self.cert.signature, self.cert.tbs_certificate_bytes,
+                                                         self.cert.signature_hash_algorithm)
+        if not certificate_verifies_ok:
+            raise IssuerCertificateException(
+                'Attempt to get issuer certificate failed. Loaded certificate is not the certificate used as issuer.')
+
+        # Go for OCSP!
+        ocsp = OcspChecker(self.cert, issuer_cert)
+        ocsp_stat, ocsp_data = ocsp.request(ocsp_uri, verbose=verbose)
+        self.last_ocsp_response = ocsp.last_ocsp_response
+
         ocsp_data['issuer_public_key'] = issuer_cert_key_bytes
         ocsp_data['issuer_public_key_type'] = issuer_public_key_type[1:]
 
@@ -323,7 +336,9 @@ class CertChecker:
         # 3) If issuer hash present, matched
         # 4) Either (For more information see RFC 6960 below):
         # 4.1) Issuer signs the response
-        # 4.1) OCSP-certificate signs the response
+        # 4.2) OCSP-certificate signs the response
+        # 4.2.1) OCSP-certificate has id-kp-OCSPSigning
+        # 4.2.2) OCSP-certificate and subject certificate are issued by same CA
         # 5) Added check for OCSP-response data to be (by default) 7 days old, at max.
         # 6) If next update information is available, it needs to be in the future.
 
@@ -372,13 +387,21 @@ class CertChecker:
             ocsp_certificate_valid = False
             if extended_key_usage_name_exts:
                 if x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_exts.value._usages:
-                    ocsp_certificate_valid = True
+                    # Both the X.509 certificate provided to us in the OCSP-response and
+                    # target certificate being verified MUST be issued by the _SAME_ issuer.
+                    certificate_verifies_ok = self._verify_signature(issuer_public_key_type,
+                                                                     issuer_cert_public_key,
+                                                                     verification_certificate.signature,
+                                                                     verification_certificate.tbs_certificate_bytes,
+                                                                     verification_certificate.signature_hash_algorithm)
+                    if certificate_verifies_ok:
+                        ocsp_certificate_valid = True
 
             # Tinker with return data
             del ocsp_data['ocsp_certificates']
             ocsp_data['ocsp_certificate'] = verification_certificate
 
-        # Perform the verification.
+        # Perform the OCSP-response signature verification.
         signature_verifies_ok = self._verify_signature(verification_public_key_type,
                                                        verification_public_key,
                                                        signature, ocsp_data['tbs_response_bytes'],
