@@ -43,8 +43,8 @@ def print_verify_result(verify_result):
         issuer_info += "\n    %s=%s" % (component_name, certificate_info['issuer'][component_name])
     for component_name in certificate_info['subject']:
         subject_info += "\n    %s=%s" % (component_name, certificate_info['subject'][component_name])
-    if ocsp_info['responder_name']:
-        responder_info = ""
+    responder_info = ''
+    if ocsp_info and ocsp_info['responder_name']:
         for component_name in ocsp_info['responder_name']:
             responder_info += "\n    %s=%s" % (component_name, ocsp_info['responder_name'][component_name])
 
@@ -97,7 +97,10 @@ def print_verify_result(verify_result):
     print("    OCSP URL: %s" % certificate_info['ocsp_url'])
 
     print("Issuer:\n  Subject:%s" % issuer_info)
-    print("  Public key (%s) SHA-1: %s" % (ocsp_info['issuer_public_key_type'], issuer_cert_key_hash_bytes.hex()))
+    if verify_result['ocsp_run']:
+        print("  Public key (%s) SHA-1: %s" % (ocsp_info['issuer_public_key_type'], issuer_cert_key_hash_bytes.hex()))
+    else:
+        print("  Public key (-unknown-) SHA-1: -unknown-")
 
     print("OCSP status: %s" % ('pass' if verify_result['ocsp_ok'] else 'fail!'))
     if verify_result['ocsp_run']:

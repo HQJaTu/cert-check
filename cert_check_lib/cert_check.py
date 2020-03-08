@@ -277,7 +277,11 @@ class CertChecker:
         if not ocsp_uri:
             raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
 
-        issuer_cert = self._load_issuer_cert()
+        issuer_cert = None
+        try:
+            issuer_cert = self._load_issuer_cert()
+        except IssuerCertificateException:
+            pass
         if not issuer_cert:
             return None, {}
 
