@@ -283,6 +283,14 @@ class CertChecker:
         ocsp_stat, ocsp_data = ocsp.request(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
+        issuer_cert_public_key = issuer_cert.public_key()
+        issuer_cert_key = issuer_cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
+                                                              format=serialization.PublicFormat.SubjectPublicKeyInfo
+                                                              )
+        issuer_cert_key_asn1, _remainder = asn1_decoder.decode(issuer_cert_key)
+        issuer_cert_key_bytes = issuer_cert_key_asn1[1].asOctets()
+        ocsp_data['issuer_public_key'] = issuer_cert_key_bytes
+
         if not ocsp_data['response_status_ok']:
             return False, ocsp_data
 
@@ -326,7 +334,6 @@ class CertChecker:
         #    3.3. For non-matching responder keys, we MUST get our hands to the responder certificate. From where?
         #    3.4. Responder certificate must have extended key usage of: OCSP-responder enabled in it.
 
-        issuer_cert_public_key = issuer_cert.public_key()
         signature = ocsp_data['signature']
 
         # Perform the verification.
@@ -360,12 +367,6 @@ class CertChecker:
         # Response verify 3:
         # Make sure response issuer key hash matches target certificate issuer certificate key hash.
         # Debug: https://lapo.it/asn1js/ or https://holtstrom.com/michael/tools/asn1decoder.php will be handy
-        issuer_cert_key = issuer_cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
-                                                              format=serialization.PublicFormat.SubjectPublicKeyInfo
-                                                              )
-        issuer_cert_key_asn1, _remainder = asn1_decoder.decode(issuer_cert_key)
-        issuer_cert_key_bytes = issuer_cert_key_asn1[1].asOctets()
-
         if ocsp_data['hash_algorithm'].lower() == 'sha1':
             issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._backend)
         elif ocsp_data['hash_algorithm'].lower() == 'sha256':
@@ -378,7 +379,6 @@ class CertChecker:
         issuer_cert_key_hash.update(issuer_cert_key_bytes)
         issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
 
-        ocsp_data['issuer_public_key'] = issuer_cert_key_bytes
         if issuer_cert_key_hash_bytes == ocsp_data['issuer_key_hash']:
             ocsp_data['issuer_key_hash_match'] = True
         else:

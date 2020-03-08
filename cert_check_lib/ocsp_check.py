@@ -104,6 +104,7 @@ class OcspChecker:
                 'hash_algorithm': ocsp_resp.hash_algorithm.__class__.__name__,
                 'signature_hash_algorithm': ocsp_resp.signature_hash_algorithm,
                 'signature': ocsp_resp.signature,
+                'signature_verify_status': None,
                 'issuer_key_hash': ocsp_resp.issuer_key_hash,
                 'issuer_name_hash': ocsp_resp.issuer_name_hash,
                 'serial_number': ocsp_resp.serial_number,
@@ -115,6 +116,9 @@ class OcspChecker:
                 'produced_at': ocsp_resp.produced_at,
                 'this_update': ocsp_resp.this_update,
                 'next_update': ocsp_resp.next_update,
+                'serial_number_match': None,
+                'issuer_key_hash_match': None,
+                'issuer_name_hash_match': None,
                 'tbs_response_bytes': ocsp_resp.tbs_response_bytes
             }
 
@@ -127,18 +131,22 @@ class OcspChecker:
                 'hash_algorithm': None,
                 'signature_hash_algorithm': None,
                 'signature': None,
+                'signature_verify_status': None,
                 'issuer_key_hash': None,
                 'issuer_name_hash': None,
                 'serial_number': None,
                 'certificates': None,
                 'responder_name': None,
                 'responder_key_hash': None,
-                'certificate_status': ocsp.OCSPCertStatus.UNKNOWN,
+                'certificate_status': ocsp.OCSPCertStatus.UNKNOWN.name,
                 'revocation_time': None,
                 'revocation_reason': None,
                 'produced_at': None,
                 'this_update': None,
-                'next_update': None
+                'next_update': None,
+                'serial_number_match': None,
+                'issuer_key_hash_match': None,
+                'issuer_name_hash_match': None
             }
 
         return ocsp_status, ocsp_should_retry, ocsp_data

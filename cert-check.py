@@ -124,17 +124,21 @@ def print_verify_result(verify_result):
 
         if ocsp_info['issuer_key_hash_match']:
             print("  OCSP issuer key hash: Matches issuer certificate key %s hash" % ocsp_info['hash_algorithm'])
-        else:
+        elif ocsp_info['issuer_key_hash']:
             print("  OCSP issuer key %s hash: %s does not match issuer certificate key hash" %
                   (ocsp_info['hash_algorithm'], ocsp_info['issuer_key_hash'].hex()))
+        else:
+            print("  OCSP issuer key hash cannot be compared, key hash not in response")
 
         if ocsp_info['issuer_name_hash_match']:
             print("  OCSP issuer name hash: Matches issuer certificate name %s hash" %
                   ocsp_info['hash_algorithm']
                   )
-        else:
+        elif ocsp_info['issuer_name_hash']:
             print("  OCSP issuer name %s hash: %s does not match issuer name hash" %
                   (ocsp_info['hash_algorithm'], ocsp_info['issuer_name_hash'].hex()))
+        else:
+            print("  OCSP issuer name hash cannot be compared, name not in response")
 
         if not verify_result['ocsp_ok']:
             failures.append('OCSP')
