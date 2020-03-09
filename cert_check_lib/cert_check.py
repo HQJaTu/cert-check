@@ -587,12 +587,12 @@ class CertChecker:
             try:
                 # Is DER-formatted?
                 issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
-            except ValueError as exc:
+            except (TypeError, ValueError):
                 issuer_cert = None
             if not issuer_cert:
                 try:
                     issuer_cert = x509.load_pem_x509_certificate(response.content, x509_openssl_backend)
-                except ValueError:
+                except (TypeError, ValueError):
                     raise IssuerCertificateException(
                         'Cannot do get issuer certificate! No idea on how to process response from %s' % ca_issuer_url)
         elif contentType == 'application/pkcs7-mime':
@@ -628,12 +628,12 @@ class CertChecker:
             # Let's guess!
             try:
                 issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
-            except TypeError:
+            except (TypeError, ValueError):
                 issuer_cert = None
             if not issuer_cert:
                 try:
                     issuer_cert = x509.load_pem_x509_certificate(response.content, x509_openssl_backend)
-                except TypeError:
+                except (TypeError, ValueError):
                     raise IssuerCertificateException(
                         'Cannot do get issuer certificate! No idea on how to process response from %s' % ca_issuer_url)
 
