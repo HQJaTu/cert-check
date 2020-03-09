@@ -83,7 +83,7 @@ class OcspChecker:
                 time.sleep(5)
                 continue
             except requests_exceptions.HTTPError as exc:
-                if exc.response.status_code not in [404, 500, 502]:
+                if exc.response.status_code not in [404, 500, 502, 504]:
                     raise
 
                 # Go another round after bit of a cooldown
