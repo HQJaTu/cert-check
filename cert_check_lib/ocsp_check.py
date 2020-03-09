@@ -70,7 +70,7 @@ class OcspChecker:
         # Go get the issuer certificate from indicated URI
         session = RequestsSession.get_requests_retry_session(retries=2)
         response = None
-        attempts_left = 5
+        attempts_left = 3
         while not response and attempts_left > 0:
             attempts_left -= 1
             try:
@@ -93,6 +93,8 @@ class OcspChecker:
         # print("HTTP/%d, %s bytes" % (response.status_code, response.headers['content-length']))
 
         ocsp_resp = None
+        if not response:
+            ocsp_status = False
         if ocsp_status:
             # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
             ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response.content)
