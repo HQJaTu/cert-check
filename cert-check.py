@@ -102,7 +102,8 @@ def print_verify_result(verify_result):
     else:
         print("  Public key (-unknown-) SHA-1: -unknown-")
 
-    print("OCSP status: %s" % ('pass' if verify_result['ocsp_ok'] else 'fail!'))
+    print("OCSP status: %s" % (
+        'pass' if verify_result['ocsp_ok'] else 'fail!' if verify_result['ocsp_run'] else '-'))
     if verify_result['ocsp_run']:
         print("  Certificate status: %s" % ocsp_info['certificate_status'])
         print("  Request hash algorithm: %s" % ocsp_info['request_hash_algorithm'])
@@ -153,7 +154,6 @@ def print_verify_result(verify_result):
         if not verify_result['ocsp_ok']:
             failures.append('OCSP')
     else:
-        failures.append('OCSP')
         print("OCSP not verified")
 
     if failures:

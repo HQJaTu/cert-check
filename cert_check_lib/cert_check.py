@@ -201,17 +201,9 @@ class CertChecker:
                 elif isinstance(alt_name, UniformResourceIdentifier):
                     urls.append(alt_name.value)
 
-        ocsp_uri = None
-        ca_issuer = None
+        ocsp_uri = self.ocsp_uri()
+        ca_issuer = self.issuer_cert_uri()
         if self.aia_ext:
-            for aia in self.aia_ext.value:
-                if aia.access_method == x509_oid.AuthorityInformationAccessOID.OCSP:
-                    if isinstance(aia.access_location, UniformResourceIdentifier):
-                        ocsp_uri = aia.access_location.value
-                if aia.access_method == x509_oid.AuthorityInformationAccessOID.CA_ISSUERS:
-                    if isinstance(aia.access_location, UniformResourceIdentifier):
-                        ca_issuer = aia.access_location.value
-
             if ocsp:
                 ocsp_stat, ocsp_data = self._verify_ocsp(verbose=verbose)
             else:
@@ -277,7 +269,8 @@ class CertChecker:
     def _verify_ocsp(self, verbose=False):
         ocsp_uri = self.ocsp_uri()
         if not ocsp_uri:
-            raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
+            #raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
+            return None, {}
 
         issuer_cert = None
         try:
@@ -559,7 +552,8 @@ class CertChecker:
                 if isinstance(aia.access_location, UniformResourceIdentifier):
                     ca_issuer_url = aia.access_location.value
         if not ca_issuer_url:
-            raise IssuerCertificateException("Cannot do get issuer certificate! Cert has no URL in AIA.")
+            #raise IssuerCertificateException("Cannot do get issuer certificate! Cert has no URL in AIA.")
+            return None
 
         # Go get the issuer certificate from indicated URI
         session = RequestsSession.get_requests_retry_session(retries=2)

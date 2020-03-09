@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='cert-check',
-    version='0.1.0',
+    version='0.1.1',
     url='https://github.com/HQJaTu/cert-check',
     license='GPLv2',
     author='Jari Turkia',
