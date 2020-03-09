@@ -79,6 +79,14 @@ class OcspChecker:
             except requests_exceptions.ConnectTimeout:
                 ocsp_status = False
             except requests_exceptions.ConnectionError:
+                # Go another round after bit of a cooldown
+                time.sleep(5)
+                continue
+            except requests_exceptions.HTTPError as exc:
+                if exc.response.status_code not in [404, 500, 502]:
+                    raise
+
+                # Go another round after bit of a cooldown
                 time.sleep(5)
                 continue
 
