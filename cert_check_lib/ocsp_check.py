@@ -83,7 +83,9 @@ class OcspChecker:
                 time.sleep(5)
                 continue
             except requests_exceptions.HTTPError as exc:
-                if exc.response.status_code not in [404, 500, 502, 504]:
+                # Different OCSP-servers respond with different HTTP-status codes.
+                # Especially Let's Encrypt reponds with a wide variety of HTTP/5xx.
+                if exc.response.status_code not in [404, 500, 502, 503, 504]:
                     raise
 
                 # Go another round after bit of a cooldown
