@@ -163,7 +163,10 @@ class CertChecker:
             raise ConnectionException("Need cert! Cannot do.")
 
         issuer = self.cert.issuer
-        subject = self.cert.subject
+        try:
+            subject = self.cert.subject
+        except ValueError:
+            subject = None
         serial_nro = self.cert.serial_number
         sig_algo = self.cert.signature_hash_algorithm.__class__.__name__.lower()
         valid_from = self.cert.not_valid_before
@@ -178,8 +181,9 @@ class CertChecker:
         subject_info = {}
         for issuer_compo in issuer:
             issuer_info[issuer_compo.oid._name] = issuer_compo.value
-        for subject_compo in subject:
-            subject_info[subject_compo.oid._name] = subject_compo.value
+        if subject:
+            for subject_compo in subject:
+                subject_info[subject_compo.oid._name] = subject_compo.value
 
         cert_public_key = self.cert.public_key()
         cert_key = cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
