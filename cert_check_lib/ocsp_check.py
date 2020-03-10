@@ -86,7 +86,7 @@ class OcspChecker:
                 # Different OCSP-servers respond with different HTTP-status codes.
                 # Especially Let's Encrypt reponds with a wide variety of HTTP/5xx.
                 # Global Sign OCSP will spew out HTTP/522
-                if exc.response.status_code not in [404, 500, 502, 503, 504, 522]:
+                if exc.response.status_code != 404 or exc.response.status_code < 500:
                     raise
 
                 # Go another round after bit of a cooldown
