@@ -85,7 +85,8 @@ class OcspChecker:
             except requests_exceptions.HTTPError as exc:
                 # Different OCSP-servers respond with different HTTP-status codes.
                 # Especially Let's Encrypt reponds with a wide variety of HTTP/5xx.
-                if exc.response.status_code not in [404, 500, 502, 503, 504]:
+                # Global Sign OCSP will spew out HTTP/522
+                if exc.response.status_code not in [404, 500, 502, 503, 504, 522]:
                     raise
 
                 # Go another round after bit of a cooldown
