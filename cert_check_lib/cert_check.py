@@ -169,7 +169,13 @@ class CertChecker:
             reader = None
             writer = None
             try:
-                reader, writer = await asyncio.open_connection(hostname, port, ssl=ctx, loop=self.loop)
+                future = asyncio.open_connection(hostname, port, ssl=ctx, loop=self.loop)
+                try:
+                    # Raise TimeoutError on error
+                    reader, writer = await asyncio.wait_for(future, timeout=CertChecker.connection_timeout)
+                except asyncio.TimeoutError:
+                    raise ConnectionException(
+                        "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
             except ssl.SSLError:
                 continue
             except ConnectionResetError:
