@@ -12,14 +12,16 @@ class OcspChecker:
     last_ocsp_response = None
     subject_cert = None
     issuer_cert = None
+    request_timeout = None
     request_hashes = None
 
-    def __init__(self, subject_cert, issuer_cert, hashes=None):
+    def __init__(self, subject_cert, issuer_cert, request_timeout, hashes=None):
         # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
         if hashes is None:
             hashes = ['sha256', 'sha1']
         self.subject_cert = subject_cert
         self.issuer_cert = issuer_cert
+        self.request_timeout = request_timeout
 
         self.request_hashes = []
         for hash in hashes:
@@ -73,25 +75,17 @@ class OcspChecker:
         attempts_left = 3
         while not response and attempts_left > 0:
             attempts_left -= 1
-            try:
-                response = session.post(url, headers=headers, data=ocsp_request)
-                response.raise_for_status()
-            except requests_exceptions.ConnectTimeout:
-                ocsp_status = False
-            except requests_exceptions.ConnectionError:
-                # Go another round after bit of a cooldown
-                time.sleep(5)
-                continue
-            except requests_exceptions.HTTPError as exc:
-                # Different OCSP-servers respond with different HTTP-status codes.
-                # Especially Let's Encrypt reponds with a wide variety of HTTP/5xx.
-                # Global Sign OCSP will spew out HTTP/522
-                if exc.response.status_code != 404 and exc.response.status_code < 500:
-                    raise
-
-                # Go another round after bit of a cooldown
-                time.sleep(5)
-                continue
+            response, should_retry = RequestsSession.post_ocsp_request_synchronous(session,
+                                                                                   url, headers,
+                                                                                   ocsp_request,
+                                                                                   self.request_timeout)
+            if not response:
+                if should_retry:
+                    # Go another round after bit of a cooldown
+                    time.sleep(5)
+                    continue
+                else:
+                    break
 
         # print("HTTP/%d, %s bytes" % (response.status_code, response.headers['content-length']))
 

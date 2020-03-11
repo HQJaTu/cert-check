@@ -28,7 +28,6 @@ from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
 from .requests import RequestsSession
 from .exceptions import *
-from requests import exceptions as requests_exceptions
 
 
 class CertChecker:
@@ -36,6 +35,8 @@ class CertChecker:
     DEFAULT_OCSP_RESPONSE_EXPIRY_DAYS: int = 7
     connection_timeout = DEFAULT_TIMEOUT
     ocsp_response_expiry_days = DEFAULT_OCSP_RESPONSE_EXPIRY_DAYS
+
+    loop = None
 
     cert = None
     cert_from_disc = False
@@ -54,8 +55,9 @@ class CertChecker:
     last_certificate_pem = None
     last_issuer_certificate_pem = None
 
-    def __init__(self):
+    def __init__(self, loop=None):
         self.cert = None
+        self.loop = loop
 
     def has_cert(self):
         return self.cert is not None
@@ -84,15 +86,37 @@ class CertChecker:
             print("TLS v1.2: %s" % ssl.HAS_TLSv1_2)
             print("TLS v1.3: %s" % ssl.HAS_TLSv1_3)
 
+        if self.loop:
+            raise ValueError("Not yet!")
+        else:
+            host_ip_addr, cipher_name, tls_version, cipher_secret_size_bits, server_cert_bytes = \
+                self._load_pem_from_host_synchronous(hostname, port, verbose)
+
+        self.cert = x509.load_der_x509_certificate(server_cert_bytes, x509_openssl_backend)
+        self._process_extensions(verbose=verbose)
+        self.last_certificate_pem = self.cert.public_bytes(serialization.Encoding.PEM)
+
+        self.cert_from_disc = False
+        self.cert_from_host = host_ip_addr
+        self.cert_from_host_conn_proto = tls_version
+        self.cert_from_host_conn_cipher = cipher_name
+        self.cert_from_host_conn_cipher_bits = cipher_secret_size_bits
+
+    def _load_pem_from_host_synchronous(self, hostname, port, verbose=False):
         # Initialize context
         # Context: The one with hostname verifiction
         # ctx = ssl.create_default_context()
         # Context: The one without hostname verifiction
         ctx = ssl._create_unverified_context()
-        tls_versions = [ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_1, ssl.TLSVersion.TLSv1]
+        tls_versions = {
+            'TLSv1.2': ssl.TLSVersion.TLSv1_2,
+            'TLSv1.1': ssl.TLSVersion.TLSv1_1,
+            'TLSv1.0': ssl.TLSVersion.TLSv1
+        }
         if False:
             print("Info: Going for %s in %d" % (hostname, port))
-        for tls_version in tls_versions:
+        for tls_version_name in tls_versions:
+            tls_version = tls_versions[tls_version_name]
             ctx.minimum_version = tls_version
             a_socket = socket.socket()
             a_socket.settimeout(CertChecker.connection_timeout)
@@ -120,19 +144,18 @@ class CertChecker:
 
         server_cert_bytes = tls_socket.getpeercert(binary_form=True)
         host_ip_addr = tls_socket.getpeername()[0]
-        cipher_name, tls_version, cipher_secret_size_bits = tls_socket.cipher()
+        cipher_name, tls_version_detected, cipher_secret_size_bits = tls_socket.cipher()
+
+        # Somethimes OpenSSL fails to detect the used version correctly.
+        # TLS 1.2 becomes SSLv3, even if it is not even built into the binary.
+        # TLS 1.1 becomes TLS 1.0, because they are essentially the same protocol.
+        if tls_version_name > tls_version_detected:
+            tls_version_detected = tls_version_name
 
         if False:
             print("Protocol: %s, %d-bit %s" % (tls_version, cipher_secret_size_bits, cipher_name))
-        self.cert = x509.load_der_x509_certificate(server_cert_bytes, x509_openssl_backend)
-        self._process_extensions(verbose=verbose)
-        self.last_certificate_pem = self.cert.public_bytes(serialization.Encoding.PEM)
 
-        self.cert_from_disc = False
-        self.cert_from_host = host_ip_addr
-        self.cert_from_host_conn_proto = tls_version
-        self.cert_from_host_conn_cipher = cipher_name
-        self.cert_from_host_conn_cipher_bits = cipher_secret_size_bits
+        return host_ip_addr, cipher_name, tls_version_detected, cipher_secret_size_bits, server_cert_bytes
 
     def _process_extensions(self, verbose=False):
         self.aia_ext = None
@@ -275,7 +298,7 @@ class CertChecker:
     def _verify_ocsp(self, verbose=False):
         ocsp_uri = self.ocsp_uri()
         if not ocsp_uri:
-            #raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
+            # raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
             return None, {}
 
         issuer_cert = None
@@ -306,7 +329,7 @@ class CertChecker:
                 'Attempt to get issuer certificate failed. Loaded certificate is not the certificate used as issuer.')
 
         # Go for OCSP!
-        ocsp = OcspChecker(self.cert, issuer_cert)
+        ocsp = OcspChecker(self.cert, issuer_cert, CertChecker.connection_timeout / 10)
         ocsp_stat, ocsp_data = ocsp.request(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
@@ -558,28 +581,12 @@ class CertChecker:
                 if isinstance(aia.access_location, UniformResourceIdentifier):
                     ca_issuer_url = aia.access_location.value
         if not ca_issuer_url:
-            #raise IssuerCertificateException("Cannot do get issuer certificate! Cert has no URL in AIA.")
+            # Cannot do get issuer certificate! Cert has no URL in AIA.
             return None
 
         # Go get the issuer certificate from indicated URI
-        session = RequestsSession.get_requests_retry_session(retries=2)
-        try:
-            response = session.get(ca_issuer_url, timeout=CertChecker.connection_timeout / 10)
-            response.raise_for_status()
-        except requests_exceptions.HTTPError as exc:
-            if exc.response.status_code not in [404, 500]:
-                raise
-            return None
-        except requests_exceptions.ConnectTimeout:
-            return None
-        except requests_exceptions.InvalidSchema:
-            # Example: ldap://
-            return None
-        except requests_exceptions.SSLError:
-            # Weird ones.
-            # Serving issuer certificate via HTTPS is.... stupid.
-            return None
-        except requests_exceptions.ConnectionError:
+        response = RequestsSession.get_issuer_cert_synchronous(ca_issuer_url, CertChecker.connection_timeout / 10)
+        if not response:
             return None
 
         issuer_cert = None
