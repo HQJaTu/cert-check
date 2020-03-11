@@ -191,7 +191,10 @@ def main():
             host_parts[1] = int(host_parts[1])
         else:
             raise ValueError("Don't understand --connect %s!" % args.connect)
-        cc.load_pem_from_host(host_parts[0], host_parts[1], verbose=not args.silent)
+        try:
+            cc.load_pem_from_host(host_parts[0], host_parts[1], verbose=not args.silent)
+        except ConnectionException:
+            pass
 
     if not cc.has_cert():
         raise ValueError("Cannot proceed, no cert!")

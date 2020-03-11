@@ -99,9 +99,6 @@ class CertChecker:
             tls_socket = ctx.wrap_socket(a_socket, server_hostname=hostname)
             try:
                 tls_socket.connect((hostname, port))
-            except OSError:
-                raise ConnectionException(
-                    "Failed to load certificate from %s:%d. OS error." % (hostname, port))
             except socket.timeout:
                 raise ConnectionException(
                     "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
@@ -113,6 +110,9 @@ class CertChecker:
                     continue
                 raise ConnectionException("Failed to load certificate from %s:%d. OpenSSL failed: %s" %
                                           (hostname, port, message)) from None
+            except OSError:
+                raise ConnectionException(
+                    "Failed to load certificate from %s:%d. OS error." % (hostname, port))
 
         if not tls_socket:
             raise ConnectionException("Failed to load certificate from %s:%d. No TLS-version allowed connection." %
@@ -578,6 +578,8 @@ class CertChecker:
         except requests_exceptions.SSLError:
             # Weird ones.
             # Serving issuer certificate via HTTPS is.... stupid.
+            return None
+        except requests_exceptions.ConnectionError:
             return None
 
         issuer_cert = None
