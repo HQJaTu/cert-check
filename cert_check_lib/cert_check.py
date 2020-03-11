@@ -23,6 +23,7 @@ from cryptography.hazmat.backends.openssl.backend import (
 import cryptography.exceptions
 import socket
 import ssl
+import asyncio
 from datetime import datetime, timedelta
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
@@ -75,22 +76,11 @@ class CertChecker:
         self.cert_from_host_conn_cipher = None
         self.cert_from_host_conn_cipher_bits = None
 
-    def load_pem_from_host(self, hostname, port, verbose=False):
+    async def load_pem_from_host_async(self, hostname, port, verbose=False):
         self.cert = None
 
-        # Debug: Print the supported SSL and TLS protocols
-        if False:
-            print("SSL v3: %s" % ssl.HAS_SSLv3)
-            print("TLS v1: %s" % ssl.HAS_TLSv1)
-            print("TLS v1.1: %s" % ssl.HAS_TLSv1_1)
-            print("TLS v1.2: %s" % ssl.HAS_TLSv1_2)
-            print("TLS v1.3: %s" % ssl.HAS_TLSv1_3)
-
-        if self.loop:
-            raise ValueError("Not yet!")
-        else:
-            host_ip_addr, cipher_name, tls_version, cipher_secret_size_bits, server_cert_bytes = \
-                self._load_pem_from_host_synchronous(hostname, port, verbose)
+        host_ip_addr, cipher_name, tls_version, cipher_secret_size_bits, server_cert_bytes = \
+            await self._load_pem_from_host_asynchronous(hostname, port, verbose)
 
         self.cert = x509.load_der_x509_certificate(server_cert_bytes, x509_openssl_backend)
         self._process_extensions(verbose=verbose)
@@ -157,6 +147,51 @@ class CertChecker:
 
         return host_ip_addr, cipher_name, tls_version_detected, cipher_secret_size_bits, server_cert_bytes
 
+    async def _load_pem_from_host_asynchronous(self, hostname, port, verbose=False):
+        server_cert_bytes = None
+        host_ip_addr = None
+        cipher_name = None
+        tls_version_detected = None
+        cipher_secret_size_bits = None
+
+        tls_versions = {
+            'TLSv1.2': ssl.TLSVersion.TLSv1_2,
+            'TLSv1.1': ssl.TLSVersion.TLSv1_1,
+            'TLSv1.0': ssl.TLSVersion.TLSv1
+        }
+        if True:
+            print("Info: Going for %s in %d" % (hostname, port))
+        ctx = ssl._create_unverified_context()
+        for tls_version_name in tls_versions:
+            tls_ctx_version = tls_versions[tls_version_name]
+            ctx.minimum_version = tls_ctx_version
+
+            reader = None
+            writer = None
+            try:
+                reader, writer = await asyncio.open_connection(hostname, port, ssl=ctx, loop=self.loop)
+            except ssl.SSLError:
+                continue
+            except ConnectionResetError:
+                raise ConnectionException("Failed to load certificate from %s:%d. OS error." % (
+                    hostname, port))
+
+            host_ip_addr = writer.get_extra_info('peername')[0]
+            ssl_obj = writer.get_extra_info('ssl_object')
+            server_cert_bytes = ssl_obj.getpeercert(binary_form=True)
+            cipher_name, tls_version_detected, cipher_secret_size_bits = ssl_obj.cipher()
+            writer.close()
+            break
+
+        if not server_cert_bytes:
+            raise ConnectionException("Failed to load certificate from %s:%d. No TLS-version allowed connection." %
+                                      (hostname, port))
+
+        if tls_version_name > tls_version_detected:
+            tls_version_detected = tls_version_name
+
+        return host_ip_addr, cipher_name, tls_version_detected, cipher_secret_size_bits, server_cert_bytes
+
     def _process_extensions(self, verbose=False):
         self.aia_ext = None
         self.alt_name_ext = None
@@ -181,7 +216,7 @@ class CertChecker:
             if verbose:
                 print("Note: This certificate doesn't have SubjectKeyIdentifier extension")
 
-    def verify(self, ocsp=True, verbose=False):
+    async def verify_async(self, ocsp=True, verbose=False):
         if not self.cert:
             raise ConnectionException("Need cert! Cannot do.")
 
@@ -232,7 +267,7 @@ class CertChecker:
         ca_issuer = self.issuer_cert_uri()
         if self.aia_ext:
             if ocsp:
-                ocsp_stat, ocsp_data = self._verify_ocsp(verbose=verbose)
+                ocsp_stat, ocsp_data = await self._verify_ocsp_async(verbose=verbose)
             else:
                 ocsp_stat = None
                 ocsp_data = {}
@@ -295,7 +330,7 @@ class CertChecker:
 
         return ocsp_uri
 
-    def _verify_ocsp(self, verbose=False):
+    async def _verify_ocsp_async(self, verbose=False):
         ocsp_uri = self.ocsp_uri()
         if not ocsp_uri:
             # raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
@@ -303,7 +338,7 @@ class CertChecker:
 
         issuer_cert = None
         try:
-            issuer_cert = self._load_issuer_cert()
+            issuer_cert = await self._load_issuer_cert_async()
         except IssuerCertificateException:
             pass
         if not issuer_cert:
@@ -329,8 +364,8 @@ class CertChecker:
                 'Attempt to get issuer certificate failed. Loaded certificate is not the certificate used as issuer.')
 
         # Go for OCSP!
-        ocsp = OcspChecker(self.cert, issuer_cert, CertChecker.connection_timeout / 10)
-        ocsp_stat, ocsp_data = ocsp.request(ocsp_uri, verbose=verbose)
+        ocsp = OcspChecker(self.cert, issuer_cert, CertChecker.connection_timeout / 10, self.loop)
+        ocsp_stat, ocsp_data = await ocsp.request_async(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
         ocsp_data['issuer_public_key'] = issuer_cert_key_bytes
@@ -574,7 +609,7 @@ class CertChecker:
 
         return signature_verifies_ok
 
-    def _load_issuer_cert(self):
+    async def _load_issuer_cert_async(self):
         ca_issuer_url = None
         for aia in self.aia_ext.value:
             if aia.access_method == x509_oid.AuthorityInformationAccessOID.CA_ISSUERS:
@@ -585,7 +620,8 @@ class CertChecker:
             return None
 
         # Go get the issuer certificate from indicated URI
-        response = RequestsSession.get_issuer_cert_synchronous(ca_issuer_url, CertChecker.connection_timeout / 10)
+        response, response_content = await RequestsSession.get_issuer_cert_async(self.loop, ca_issuer_url,
+                                                                                 CertChecker.connection_timeout / 10)
         if not response:
             return None
 
@@ -599,12 +635,12 @@ class CertChecker:
             # This is a basic certificate
             try:
                 # Is DER-formatted?
-                issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
+                issuer_cert = x509.load_der_x509_certificate(response_content, x509_openssl_backend)
             except (TypeError, ValueError):
                 issuer_cert = None
             if not issuer_cert:
                 try:
-                    issuer_cert = x509.load_pem_x509_certificate(response.content, x509_openssl_backend)
+                    issuer_cert = x509.load_pem_x509_certificate(response_content, x509_openssl_backend)
                 except (TypeError, ValueError):
                     raise IssuerCertificateException(
                         'Cannot do get issuer certificate! No idea on how to process response from %s' % ca_issuer_url)
@@ -616,7 +652,7 @@ class CertChecker:
             # For extracting a certificate out of a PKCS#7 there is no ready-made solution and this is the only
             # applicable way (for now). I'll be standing by for OpenSSL-team to come up with a proper interface for
             # certificate extraction.
-            pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, response.content)
+            pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, response_content)
 
             certs = _ffi.NULL
             if pkcs7.type_is_signed():
@@ -640,12 +676,12 @@ class CertChecker:
             # No Content-Type given or we don't know that particular Content-Type.
             # Let's guess!
             try:
-                issuer_cert = x509.load_der_x509_certificate(response.content, x509_openssl_backend)
+                issuer_cert = x509.load_der_x509_certificate(response_content, x509_openssl_backend)
             except (TypeError, ValueError):
                 issuer_cert = None
             if not issuer_cert:
                 try:
-                    issuer_cert = x509.load_pem_x509_certificate(response.content, x509_openssl_backend)
+                    issuer_cert = x509.load_pem_x509_certificate(response_content, x509_openssl_backend)
                 except (TypeError, ValueError):
                     raise IssuerCertificateException(
                         'Cannot do get issuer certificate! No idea on how to process response from %s' % ca_issuer_url)

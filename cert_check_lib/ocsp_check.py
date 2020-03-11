@@ -15,13 +15,16 @@ class OcspChecker:
     request_timeout = None
     request_hashes = None
 
-    def __init__(self, subject_cert, issuer_cert, request_timeout, hashes=None):
+    loop = None
+
+    def __init__(self, subject_cert, issuer_cert, request_timeout, loop, hashes=None):
         # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
         if hashes is None:
             hashes = ['sha256', 'sha1']
         self.subject_cert = subject_cert
         self.issuer_cert = issuer_cert
         self.request_timeout = request_timeout
+        self.loop = loop
 
         self.request_hashes = []
         for hash in hashes:
@@ -32,14 +35,15 @@ class OcspChecker:
             else:
                 raise OCSPHashException("Don't know hash '%s'! Cannot go OCSP." % hash)
 
-    def request(self, url, verbose=False):
+    async def request_async(self, url, verbose=False):
         ocsp_status = None
         ocsp_data = {}
         for request_hash_class in self.request_hashes:
             request_hash = request_hash_class()
-            ocsp_status, ocsp_should_retry, ocsp_data = self._do_request(url,
-                                                                         self.subject_cert, self.issuer_cert,
-                                                                         request_hash)
+            ocsp_status, ocsp_should_retry, ocsp_data = await self._do_request_async(url,
+                                                                                     self.subject_cert,
+                                                                                     self.issuer_cert,
+                                                                                     request_hash)
             if ocsp_status:
                 # Success
                 break
@@ -54,7 +58,7 @@ class OcspChecker:
 
         return ocsp_status, ocsp_data
 
-    def _do_request(self, url, cert, issuer_cert, hash, verbose=False):
+    async def _do_request_async(self, url, cert, issuer_cert, hash, verbose=False):
         builder = ocsp.OCSPRequestBuilder()
         builder = builder.add_certificate(cert, issuer_cert, hash)
         self.ocsp_request = builder.build()
@@ -70,15 +74,14 @@ class OcspChecker:
         self.last_ocsp_response = None
 
         # Go get the issuer certificate from indicated URI
-        session = RequestsSession.get_requests_retry_session(retries=2)
         response = None
         attempts_left = 3
         while not response and attempts_left > 0:
             attempts_left -= 1
-            response, should_retry = RequestsSession.post_ocsp_request_synchronous(session,
-                                                                                   url, headers,
-                                                                                   ocsp_request,
-                                                                                   self.request_timeout)
+            should_retry, response, response_content = await RequestsSession.post_ocsp_request_async(self.loop,
+                                                                                                     url, headers,
+                                                                                                     ocsp_request,
+                                                                                                     self.request_timeout)
             if not response:
                 if should_retry:
                     # Go another round after bit of a cooldown
@@ -94,7 +97,7 @@ class OcspChecker:
             ocsp_status = False
         if ocsp_status:
             # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
-            ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response.content)
+            ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response_content)
             if ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED or \
                     not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
                 ocsp_status = False

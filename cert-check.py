@@ -2,11 +2,11 @@
 
 # vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
 
-import sys
 import argparse
 from cert_check_lib import *
 from urllib.parse import urlparse
 import shlex
+import asyncio
 
 
 def write_ocsp_response_into_file(ocsp_response_file, ocsp_response):
@@ -180,7 +180,8 @@ def main():
                         help='Write PEM-formatted issuer X.509 certificate into a file, if specified')
     args = parser.parse_args()
 
-    cc = CertChecker()
+    async_loop = asyncio.get_event_loop()
+    cc = CertChecker(loop=async_loop)
     if args.file:
         cc.load_pem_from_file(args.file)
     elif args.connect:
@@ -192,14 +193,23 @@ def main():
         else:
             raise ValueError("Don't understand --connect %s!" % args.connect)
         try:
-            cc.load_pem_from_host(host_parts[0], host_parts[1], verbose=not args.silent)
+            async_loop.run_until_complete(cc.load_pem_from_host_async(host_parts[0], host_parts[1],
+                                                                      verbose=not args.silent))
         except ConnectionException:
             pass
 
     if not cc.has_cert():
         raise ValueError("Cannot proceed, no cert!")
 
-    verify_stat, verify_result = cc.verify(verbose=not args.silent)
+    verify_stat, verify_result = async_loop.run_until_complete(cc.verify_async(verbose=not args.silent))
+
+    # In a nice and calm fashion, shut down any possible tasks that are pending.
+    for task in asyncio.Task.all_tasks():
+        task.cancel()
+    async_loop.run_until_complete(async_loop.shutdown_asyncgens())
+    async_loop.close()
+
+    # Continue with any possible results
     if not args.silent:
         print_verify_result(verify_result)
 
