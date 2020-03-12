@@ -308,7 +308,8 @@ class CertChecker:
         issuer_cert_key_bytes = issuer_cert_key_asn1[1].asOctets()
         issuer_public_key_type = issuer_cert_public_key.__class__.__name__
 
-        # Perform the OCSP-response signature verification.
+        # Basics:
+        # Verify our target certificate is signed by our issuer certificate.
         certificate_verifies_ok = self._verify_signature(issuer_public_key_type,
                                                          issuer_cert_public_key,
                                                          self.cert.signature, self.cert.tbs_certificate_bytes,
@@ -600,6 +601,7 @@ class CertChecker:
                         'Cannot do get issuer certificate! No idea on how to process response from %s' % ca_issuer_url)
         elif contentType == 'application/pkcs7-mime':
             # This is a DER-formatted certificate wrapped into PKCS#7
+            interim_certificates = []
 
             # DANGER! DANGER! DANGER!
             # Digging into guts of OpenSSL isn't smart. It's stupid. Very stupid.
@@ -617,15 +619,26 @@ class CertChecker:
                 certs = pkcs7._pkcs7.d.signed_and_enveloped.cert
 
             num_certs_in_pkcs7 = _lib.sk_X509_num(certs)
-            if num_certs_in_pkcs7 != 1:
-                raise PKCS7Exception(
-                    'Found PKCS#7 certificate with multiple certificates! Cannot decide which one to load.')
-
-            cert_data_ptr = _lib.X509_dup(_lib.sk_X509_value(certs, 0))
-            interim_issuer_cert = crypto.X509._from_raw_x509_ptr(cert_data_ptr)
+            for cert_num in range(num_certs_in_pkcs7):
+                cert_data_ptr = _lib.X509_dup(_lib.sk_X509_value(certs, cert_num))
+                interim_issuer_cert = crypto.X509._from_raw_x509_ptr(cert_data_ptr)
+                interim_certificates.append(interim_issuer_cert.to_cryptography())
             # end DANGER! DANGER! DANGER! end
 
-            issuer_cert = interim_issuer_cert.to_cryptography()
+            for interim_issuer_cert in interim_certificates:
+                public_key = interim_issuer_cert.public_key()
+                public_key_type = public_key.__class__.__name__
+                certificate_verifies_ok = self._verify_signature(public_key_type,
+                                                                 public_key,
+                                                                 self.cert.signature, self.cert.tbs_certificate_bytes,
+                                                                 self.cert.signature_hash_algorithm)
+                if certificate_verifies_ok:
+                    issuer_cert = interim_issuer_cert
+                    break
+            if not issuer_cert:
+                raise PKCS7Exception(
+                    'Found PKCS#7 certificate with multiple certificates! None of them seems to be the issuer certificate.')
+
         else:
             # No Content-Type given or we don't know that particular Content-Type.
             # Let's guess!
