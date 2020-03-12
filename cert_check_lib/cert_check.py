@@ -92,61 +92,6 @@ class CertChecker:
         self.cert_from_host_conn_cipher = cipher_name
         self.cert_from_host_conn_cipher_bits = cipher_secret_size_bits
 
-    def _load_pem_from_host_synchronous(self, hostname, port, verbose=False):
-        # Initialize context
-        # Context: The one with hostname verifiction
-        # ctx = ssl.create_default_context()
-        # Context: The one without hostname verifiction
-        ctx = ssl._create_unverified_context()
-        tls_versions = {
-            'TLSv1.2': ssl.TLSVersion.TLSv1_2,
-            'TLSv1.1': ssl.TLSVersion.TLSv1_1,
-            'TLSv1.0': ssl.TLSVersion.TLSv1
-        }
-        if False:
-            print("Info: Going for %s in %d" % (hostname, port))
-        for tls_version_name in tls_versions:
-            tls_version = tls_versions[tls_version_name]
-            ctx.minimum_version = tls_version
-            a_socket = socket.socket()
-            a_socket.settimeout(CertChecker.connection_timeout)
-            tls_socket = ctx.wrap_socket(a_socket, server_hostname=hostname)
-            try:
-                tls_socket.connect((hostname, port))
-            except socket.timeout:
-                raise ConnectionException(
-                    "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
-            except ssl.SSLError as exc:
-                tls_socket = None
-                message = exc.args[1]
-                if 'SSL: TLSV1_ALERT_PROTOCOL_VERSION' in message:
-                    # Decrease TLS-version and go again
-                    continue
-                raise ConnectionException("Failed to load certificate from %s:%d. OpenSSL failed: %s" %
-                                          (hostname, port, message)) from None
-            except OSError:
-                raise ConnectionException(
-                    "Failed to load certificate from %s:%d. OS error." % (hostname, port))
-
-        if not tls_socket:
-            raise ConnectionException("Failed to load certificate from %s:%d. No TLS-version allowed connection." %
-                                      (hostname, port))
-
-        server_cert_bytes = tls_socket.getpeercert(binary_form=True)
-        host_ip_addr = tls_socket.getpeername()[0]
-        cipher_name, tls_version_detected, cipher_secret_size_bits = tls_socket.cipher()
-
-        # Somethimes OpenSSL fails to detect the used version correctly.
-        # TLS 1.2 becomes SSLv3, even if it is not even built into the binary.
-        # TLS 1.1 becomes TLS 1.0, because they are essentially the same protocol.
-        if tls_version_name > tls_version_detected:
-            tls_version_detected = tls_version_name
-
-        if False:
-            print("Protocol: %s, %d-bit %s" % (tls_version, cipher_secret_size_bits, cipher_name))
-
-        return host_ip_addr, cipher_name, tls_version_detected, cipher_secret_size_bits, server_cert_bytes
-
     async def _load_pem_from_host_asynchronous(self, hostname, port, verbose=False):
         server_cert_bytes = None
         host_ip_addr = None
@@ -178,9 +123,12 @@ class CertChecker:
                         "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
             except ssl.SSLError:
                 continue
-            except ConnectionResetError:
+            except (ConnectionResetError, socket.gaierror):
                 raise ConnectionException("Failed to load certificate from %s:%d. OS error." % (
                     hostname, port))
+            except OSError:
+                raise ConnectionException(
+                    "Failed to load certificate from %s:%d. OS error." % (hostname, port))
 
             host_ip_addr = writer.get_extra_info('peername')[0]
             ssl_obj = writer.get_extra_info('ssl_object')
