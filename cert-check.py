@@ -92,6 +92,12 @@ def print_verify_result(verify_result):
         if certificate_info['urls']:
             print("    URIs: %s" % ', '.join(certificate_info['urls']))
 
+    if certificate_info['cert_verification']:
+        verification = ', '.join(certificate_info['cert_verification'])
+    else:
+        verification = '-'
+    print("  Verification: %s" % verification)
+
     print("  Authority Information Access (AIA):")
     print("    Issuer certificate URL: %s" % certificate_info['issuer_cert_url'])
     print("    OCSP URL: %s" % certificate_info['ocsp_url'])

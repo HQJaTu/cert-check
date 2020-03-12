@@ -9,6 +9,7 @@ from cryptography.x509 import (
     oid as x509_oid,
     DNSName, IPAddress, UniformResourceIdentifier
 )
+from cryptography.hazmat._oid import ObjectIdentifier
 from cryptography.hazmat.primitives import (
     serialization,
     hashes,
@@ -32,6 +33,16 @@ from .exceptions import *
 
 
 class CertChecker:
+    # See:https://cabforum.org/object-registry/
+    KNOWN_VERIFICATION_POLICIES = {
+        'EV': ObjectIdentifier('2.23.140.1.1'),
+        'DV': ObjectIdentifier('2.23.140.1.2.1'),
+        'OV': ObjectIdentifier('2.23.140.1.2.2'),
+        'EV code sign': ObjectIdentifier('2.23.140.1.3'),
+        'Test': ObjectIdentifier('2.23.140.2.1'),
+        'EV Onion': ObjectIdentifier('2.23.140.1.31')
+    }
+
     DEFAULT_TIMEOUT: int = 5
     DEFAULT_OCSP_RESPONSE_EXPIRY_DAYS: int = 7
     connection_timeout = DEFAULT_TIMEOUT
@@ -50,6 +61,7 @@ class CertChecker:
     aia_ext = None
     alt_name_ext = None
     key_id_ext = None
+    cert_policies_ext = None
 
     # Request results
     last_ocsp_response = None
@@ -150,6 +162,7 @@ class CertChecker:
         self.aia_ext = None
         self.alt_name_ext = None
         self.key_id_ext = None
+        self.cert_policies_ext = None
 
         extensions = x509_extensions.Extensions(self.cert.extensions)
         try:
@@ -169,6 +182,12 @@ class CertChecker:
         except x509_extensions.ExtensionNotFound:
             if verbose:
                 print("Note: This certificate doesn't have SubjectKeyIdentifier extension")
+
+        try:
+            self.cert_policies_ext = extensions.get_extension_for_class(x509_extensions.CertificatePolicies)
+        except x509_extensions.ExtensionNotFound:
+            if verbose:
+                print("Note: This certificate doesn't have CertificatePolicies extension")
 
     async def verify_async(self, ocsp=True, verbose=False):
         if not self.cert:
@@ -229,6 +248,17 @@ class CertChecker:
             ocsp_stat = None
             ocsp_data = {}
 
+        cert_verifications = []
+        if self.cert_policies_ext:
+            for cert_policy in self.cert_policies_ext.value:
+                if not isinstance(cert_policy, x509_extensions.PolicyInformation):
+                    continue
+                unknown_policy = ObjectIdentifier(cert_policy.policy_identifier.dotted_string)
+                usage = [usage for usage, oid in CertChecker.KNOWN_VERIFICATION_POLICIES.items() if
+                         oid == unknown_policy]
+                if usage:
+                    cert_verifications.append(usage[0])
+
         if self.cert_from_host:
             connection_info = {
                 'host_ip': self.cert_from_host,
@@ -255,7 +285,8 @@ class CertChecker:
                 'issuer_cert_url': ca_issuer,
                 'ocsp_url': ocsp_uri,
                 'public_key': cert_key_bytes,
-                'public_key_type': public_key_type[1:]
+                'public_key_type': public_key_type[1:],
+                'cert_verification': cert_verifications
             },
             'ocsp_run': not ocsp_stat == None,
             'ocsp_ok': ocsp_stat,
