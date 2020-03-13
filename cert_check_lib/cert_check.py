@@ -213,8 +213,9 @@ class CertChecker:
 
         issuer_info = {}
         subject_info = {}
-        for issuer_compo in issuer:
-            issuer_info[issuer_compo.oid._name] = issuer_compo.value
+        if issuer:
+            for issuer_compo in issuer:
+                issuer_info[issuer_compo.oid._name] = issuer_compo.value
         if subject:
             for subject_compo in subject:
                 subject_info[subject_compo.oid._name] = subject_compo.value
