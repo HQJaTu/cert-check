@@ -22,7 +22,7 @@ class RequestsSession:
             async with RequestsSession.get_requests_retry_session(retries=2, loop=loop) as session:
                 async with session.get(ca_issuer_url) as response:
                     return response, await response.read()
-        except (aiohttp.ClientError, aiohttp.ClientConnectorError):
+        except aiohttp.ClientError:
             return None, None
         except asyncio.TimeoutError:
             return None, None
@@ -39,7 +39,7 @@ class RequestsSession:
             try:
                 async with session.post(url, headers=headers, data=ocsp_request, timeout=timeout) as response:
                     return False, response, await response.read()
-            except (aiohttp.ClientError, aiohttp.ClientConnectorError) as exc:
+            except aiohttp.ClientError as exc:
                 should_retry = False
                 await session.close()
             except asyncio.TimeoutError as exc:
