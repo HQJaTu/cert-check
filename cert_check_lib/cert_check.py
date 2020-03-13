@@ -193,7 +193,10 @@ class CertChecker:
         if not self.cert:
             raise ConnectionException("Need cert! Cannot do.")
 
-        issuer = self.cert.issuer
+        try:
+            issuer = self.cert.issuer
+        except ValueError:
+            issuer = None
         try:
             subject = self.cert.subject
         except ValueError:
