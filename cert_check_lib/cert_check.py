@@ -116,7 +116,7 @@ class CertChecker:
             'TLSv1.1': ssl.TLSVersion.TLSv1_1,
             'TLSv1.0': ssl.TLSVersion.TLSv1
         }
-        if True:
+        if verbose:
             print("Info: Going for %s in %d" % (hostname, port))
         ctx = ssl._create_unverified_context()
         for tls_version_name in tls_versions:

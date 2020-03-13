@@ -75,6 +75,7 @@ class OcspChecker:
 
         # Go get the issuer certificate from indicated URI
         response = None
+        response_content = None
         attempts_left = 3
         while not response and attempts_left > 0:
             attempts_left -= 1
@@ -97,8 +98,15 @@ class OcspChecker:
             ocsp_status = False
         if ocsp_status:
             # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
-            ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response_content)
-            if ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED or \
+            try:
+                ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response_content)
+            except ValueError:
+                # This is ultra-rare, but it does happen.
+                ocsp_status = False
+                ocsp_should_retry = False
+
+            if ocsp_resp and \
+                    ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED or \
                     not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
                 ocsp_status = False
                 ocsp_should_retry = True
@@ -106,7 +114,8 @@ class OcspChecker:
                     print("OCSP response status '%s' not successful" % ocsp_resp.response_status)
 
             # Save last response for possible further analysis.
-            self.last_ocsp_response = ocsp_resp.public_bytes(serialization.Encoding.DER)
+            if ocsp_resp:
+                self.last_ocsp_response = ocsp_resp.public_bytes(serialization.Encoding.DER)
 
         responder_info = {}
         if ocsp_status and ocsp_resp.responder_name:
