@@ -135,7 +135,7 @@ class CertChecker:
                         "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
             except ssl.SSLError:
                 continue
-            except (ConnectionResetError, ClientConnectorError, socket.gaierror):
+            except (ConnectionResetError, socket.gaierror):
                 raise ConnectionException("Failed to load certificate from %s:%d. OS error." % (
                     hostname, port))
             except OSError:
