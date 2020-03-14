@@ -354,7 +354,7 @@ class CertChecker:
                 'Attempt to get issuer certificate failed. Loaded certificate is not the certificate used as issuer.')
 
         # Go for OCSP!
-        ocsp = OcspChecker(self.cert, issuer_cert, CertChecker.connection_timeout / 10, self.loop)
+        ocsp = OcspChecker(self.cert, issuer_cert, CertChecker.connection_timeout, self.loop)
         ocsp_stat, ocsp_data = await ocsp.request_async(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
@@ -415,45 +415,55 @@ class CertChecker:
         verification_public_key = issuer_cert_public_key
 
         if ocsp_data['ocsp_certificates']:
-            # Multiple certificates returned?
-            if verbose and len(ocsp_data['ocsp_certificates']) > 1:
-                print("Warning: OCSP-response has multiple certificates!")
-            # Use the first one
-            verification_certificate = ocsp_data['ocsp_certificates'][0]
-            verification_public_key = verification_certificate.public_key()
-            verification_public_key_type = verification_public_key.__class__.__name__
-            ocsp_certificate_used = True
+            verification_certificate = None
+            for verification_certificate in ocsp_data['ocsp_certificates']:
+                verification_public_key = verification_certificate.public_key()
+                verification_public_key_type = verification_public_key.__class__.__name__
+                ocsp_certificate_used = True
 
-            # Check for id-kp-OCSPSigning
-            extensions = None
-            try:
-                extensions = x509_extensions.Extensions(verification_certificate.extensions)
-            except ValueError:
-                pass
-
-            extended_key_usage_name_exts = None
-            if extensions:
+                # Check for id-kp-OCSPSigning and id-pkix-ocsp-nocheck
+                extensions = None
                 try:
-                    extended_key_usage_name_exts = extensions.get_extension_for_class(x509_extensions.ExtendedKeyUsage)
-                except x509_extensions.ExtensionNotFound:
-                    extended_key_usage_name_exts = None
+                    extensions = x509_extensions.Extensions(verification_certificate.extensions)
+                except ValueError:
+                    pass
 
-            ocsp_certificate_valid = False
-            if extended_key_usage_name_exts:
-                if x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_exts.value._usages:
-                    # Both the X.509 certificate provided to us in the OCSP-response and
-                    # target certificate being verified MUST be issued by the _SAME_ issuer.
-                    certificate_verifies_ok = self._verify_signature(issuer_public_key_type,
-                                                                     issuer_cert_public_key,
-                                                                     verification_certificate.signature,
-                                                                     verification_certificate.tbs_certificate_bytes,
-                                                                     verification_certificate.signature_hash_algorithm)
-                    if certificate_verifies_ok:
+                extended_key_usage_name_ext = None
+                ocsp_no_check_ext = None
+                if extensions:
+                    try:
+                        extended_key_usage_name_ext = extensions.get_extension_for_class(x509_extensions.ExtendedKeyUsage)
+                    except x509_extensions.ExtensionNotFound:
+                        extended_key_usage_name_ext = None
+                    try:
+                        ocsp_no_check_ext = extensions.get_extension_for_class(x509_extensions.OCSPNoCheck)
+                    except x509_extensions.ExtensionNotFound:
+                        ocsp_no_check_ext = None
+
+                    if ocsp_no_check_ext:
+                        # OCSP issuer has requested an implicit trust towards certificate
                         ocsp_certificate_valid = True
+                        break
+                    else:
+                        ocsp_certificate_valid = False
+                        if x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_ext.value._usages:
+                            # Both the X.509 certificate provided to us in the OCSP-response and
+                            # target certificate being verified MUST be issued by the _SAME_ issuer.
+                            certificate_verifies_ok = self._verify_signature(issuer_public_key_type,
+                                                                             issuer_cert_public_key,
+                                                                             verification_certificate.signature,
+                                                                             verification_certificate.tbs_certificate_bytes,
+                                                                             verification_certificate.signature_hash_algorithm)
+                            if certificate_verifies_ok:
+                                ocsp_certificate_valid = True
+                                break
 
             # Tinker with return data
             del ocsp_data['ocsp_certificates']
-            ocsp_data['ocsp_certificate'] = verification_certificate
+            if certificate_verifies_ok:
+                ocsp_data['ocsp_certificate'] = verification_certificate
+            else:
+                ocsp_data['ocsp_certificate'] = None
 
         # Perform the OCSP-response signature verification.
         signature_verifies_ok = self._verify_signature(verification_public_key_type,
@@ -618,7 +628,7 @@ class CertChecker:
 
         # Go get the issuer certificate from indicated URI
         response, response_content = await RequestsSession.get_issuer_cert_async(self.loop, ca_issuer_url,
-                                                                                 CertChecker.connection_timeout / 10)
+                                                                                 CertChecker.connection_timeout)
         if not response:
             return None
 
