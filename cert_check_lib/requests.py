@@ -17,7 +17,7 @@ class RequestsSession:
         o = urlparse(ca_issuer_url)
         if not o.scheme in ['http', 'https']:
             return None, None
-		
+
         try:
             async with RequestsSession.get_requests_retry_session(retries=2, loop=loop) as session:
                 async with session.get(ca_issuer_url) as response:
@@ -32,7 +32,7 @@ class RequestsSession:
         o = urlparse(url)
         if not o.scheme in ['http', 'https']:
             return False, None, None
-		
+
         response = None
         should_retry = None
         async with RequestsSession.get_requests_retry_session(retries=2, loop=loop) as session:
