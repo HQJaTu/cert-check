@@ -425,11 +425,18 @@ class CertChecker:
             ocsp_certificate_used = True
 
             # Check for id-kp-OCSPSigning
-            extensions = x509_extensions.Extensions(verification_certificate.extensions)
+            extensions = None
             try:
-                extended_key_usage_name_exts = extensions.get_extension_for_class(x509_extensions.ExtendedKeyUsage)
-            except x509_extensions.ExtensionNotFound:
-                extended_key_usage_name_exts = None
+                extensions = x509_extensions.Extensions(verification_certificate.extensions)
+            except ValueError:
+                pass
+
+            extended_key_usage_name_exts = None
+            if extensions:
+                try:
+                    extended_key_usage_name_exts = extensions.get_extension_for_class(x509_extensions.ExtendedKeyUsage)
+                except x509_extensions.ExtensionNotFound:
+                    extended_key_usage_name_exts = None
 
             ocsp_certificate_valid = False
             if extended_key_usage_name_exts:
