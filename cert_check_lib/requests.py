@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 from urllib.parse import urlparse
+from aiohttp import ClientConnectorError
 
 
 class RequestsSession:
@@ -22,7 +23,7 @@ class RequestsSession:
             async with RequestsSession.get_requests_retry_session(retries=2, loop=loop) as session:
                 async with session.get(ca_issuer_url) as response:
                     return response, await response.read()
-        except aiohttp.ClientError:
+        except (aiohttp.ClientError, ClientConnectorError):
             return None, None
         except asyncio.TimeoutError:
             return None, None
@@ -39,7 +40,7 @@ class RequestsSession:
             try:
                 async with session.post(url, headers=headers, data=ocsp_request, timeout=timeout) as response:
                     return False, response, await response.read()
-            except aiohttp.ClientError as exc:
+            except (aiohttp.ClientError, ClientConnectorError) as exc:
                 should_retry = False
                 await session.close()
             except asyncio.TimeoutError as exc:
