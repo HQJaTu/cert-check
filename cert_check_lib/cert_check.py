@@ -541,9 +541,10 @@ class CertChecker:
                         # OCSP issuer has requested an implicit trust towards certificate
                         ocsp_certificate_valid = True
                         break
-                    else:
+                    elif extended_key_usage_name_ext and extended_key_usage_name_ext.value:
                         ocsp_certificate_valid = False
-                        if x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_ext.value._usages:
+                        if extended_key_usage_name_ext.value._usages and \
+                                x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_ext.value._usages:
                             # Both the X.509 certificate provided to us in the OCSP-response and
                             # target certificate being verified MUST be issued by the _SAME_ issuer.
                             certificate_verifies_ok = self._verify_signature(issuer_public_key_type,

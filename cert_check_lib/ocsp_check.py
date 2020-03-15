@@ -106,8 +106,8 @@ class OcspChecker:
                 ocsp_should_retry = False
 
             if ocsp_resp and \
-                    ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED or \
-                    not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL:
+                    (ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED or \
+                    not ocsp_resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL):
                 ocsp_status = False
                 ocsp_should_retry = True
                 if verbose:
