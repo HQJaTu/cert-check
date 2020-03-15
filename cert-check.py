@@ -35,14 +35,15 @@ def get_ocsp_command(cert_file, issuer_uri, ocsp_uri):
 def print_verify_result(verify_result):
     failures = []
     certificate_info = verify_result['certificate']
+    issuer_info = verify_result['issuer']
     ocsp_info = verify_result['ocsp']
-    issuer_info = ""
-    subject_info = ""
+    issuer_str = ""
+    subject_str = ""
     responder_info = None
     for component_name in certificate_info['issuer']:
-        issuer_info += "\n    %s=%s" % (component_name, certificate_info['issuer'][component_name])
+        issuer_str += "\n    %s=%s" % (component_name, certificate_info['issuer'][component_name])
     for component_name in certificate_info['subject']:
-        subject_info += "\n    %s=%s" % (component_name, certificate_info['subject'][component_name])
+        subject_str += "\n    %s=%s" % (component_name, certificate_info['subject'][component_name])
     responder_info = ''
     if ocsp_info and ocsp_info['responder_name']:
         for component_name in ocsp_info['responder_name']:
@@ -65,9 +66,9 @@ def print_verify_result(verify_result):
     cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
     cert_key_hash.update(certificate_info['public_key'])
     cert_key_hash_bytes = cert_key_hash.finalize()
-    if ocsp_info:
+    if issuer_info:
         issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
-        issuer_cert_key_hash.update(ocsp_info['issuer_public_key'])
+        issuer_cert_key_hash.update(issuer_info['issuer_public_key'])
         issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
     else:
         issuer_cert_key_hash_bytes = bytes()
@@ -80,7 +81,7 @@ def print_verify_result(verify_result):
         ))
     print("  Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
     print("    Validity: %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
-    print("  Subject: %s" % subject_info)
+    print("  Subject: %s" % subject_str)
     print("  Serial #: %s" % certificate_info['serial_nro'])
     print("  Signature algo: %s" % certificate_info['signature_algorithm'])
     print("  Public key (%s) SHA-1: %s" % (certificate_info['public_key_type'], cert_key_hash_bytes.hex()))
@@ -107,9 +108,9 @@ def print_verify_result(verify_result):
     print("    Issuer certificate URL: %s" % certificate_info['issuer_cert_url'])
     print("    OCSP URL: %s" % certificate_info['ocsp_url'])
 
-    print("Issuer:\n  Subject:%s" % issuer_info)
-    if verify_result['ocsp_run']:
-        print("  Public key (%s) SHA-1: %s" % (ocsp_info['issuer_public_key_type'], issuer_cert_key_hash_bytes.hex()))
+    print("Issuer:\n  Subject:%s" % issuer_str)
+    if verify_result['ocsp_run'] and issuer_info:
+        print("  Public key (%s) SHA-1: %s" % (issuer_info['issuer_public_key_type'], issuer_cert_key_hash_bytes.hex()))
     else:
         print("  Public key (-unknown-) SHA-1: -unknown-")
 
