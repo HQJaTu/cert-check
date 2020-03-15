@@ -105,7 +105,20 @@ def print_verify_result(verify_result):
     print("  Verification: %s" % verification)
 
     print("  Authority Information Access (AIA):")
+    issuer_cert_status = '?'
+    if certificate_info['issuer_cert_url'] and issuer_info:
+        if issuer_info['issuer_url_ok']:
+            if issuer_info['issuer_url_connected_ok']:
+                if issuer_info['issuer_public_key_type']:
+                    issuer_cert_status = 'Ok'
+                else:
+                    issuer_cert_status = 'Connected, but failed to read valid data'
+            else:
+                issuer_cert_status = 'Failed connecting'
+        else:
+            issuer_cert_status = 'Will not attempt connection'
     print("    Issuer certificate URL: %s" % certificate_info['issuer_cert_url'])
+    print("      Status: %s" % issuer_cert_status)
     print("    OCSP URL: %s" % certificate_info['ocsp_url'])
 
     print("Issuer:\n  Subject:%s" % issuer_str)

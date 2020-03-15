@@ -26,6 +26,7 @@ import socket
 import ssl
 import asyncio
 import ipaddress
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
@@ -419,7 +420,6 @@ class CertChecker:
             'cert_signed_by_aia_issuer': None
         }
         ocsp_data = {
-            'ocsp_url_ok': False,
             'ocsp_url_connected_ok': None
         }
 
@@ -428,17 +428,20 @@ class CertChecker:
             # raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
             return None, issuer_data, ocsp_data
 
-        issuer_data['issuer_url_ok'] = True
-        ocsp_data['ocsp_url_ok'] = True
         issuer_cert = None
         try:
-            issuer_cert = await self._load_issuer_cert_async()
-            issuer_data['issuer_url_connected_ok'] = True
+            ca_issuer_url, issuer_cert = await self._load_issuer_cert_async()
         except IssuerCertificateException:
-            issuer_data['issuer_url_connected_ok'] = False
-            pass
+            ca_issuer_url = None
+        if ca_issuer_url:
+            issuer_data['issuer_url_ok'] = True
+        else:
+            issuer_data['issuer_url_ok'] = False
         if not issuer_cert:
+            issuer_data['issuer_url_connected_ok'] = False
             return None, issuer_data, ocsp_data
+
+        issuer_data['issuer_url_connected_ok'] = True
 
         # Sanity check:
         # Is the certificate being investigated issued by the alleged "issuer" certificate we just loaded?
@@ -470,7 +473,6 @@ class CertChecker:
         ocsp_stat, ocsp_data = await ocsp.request_async(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
 
-        ocsp_data['ocsp_url_ok'] = True
         ocsp_data['ocsp_url_connected_ok'] = ocsp_stat is not None
 
         if not ocsp_data['response_status_ok']:
@@ -738,13 +740,17 @@ class CertChecker:
                     ca_issuer_url = aia.access_location.value
         if not ca_issuer_url:
             # Cannot do get issuer certificate! Cert has no URL in AIA.
-            return None
+            return None, None
+
+        url_parts = urlparse(ca_issuer_url)
+        if not url_parts.scheme in ['http', 'https']:
+            return None, None
 
         # Go get the issuer certificate from indicated URI
         response, response_content = await RequestsSession.get_issuer_cert_async(self.loop, ca_issuer_url,
                                                                                  CertChecker.connection_timeout)
         if not response:
-            return None
+            return ca_issuer_url, None
 
         issuer_cert = None
         if 'content-type' in response.headers:
@@ -827,4 +833,4 @@ class CertChecker:
         # Store the issuer certificate also in PEM-format for possible use.
         self.last_issuer_certificate_pem = issuer_cert.public_bytes(serialization.Encoding.PEM)
 
-        return issuer_cert
+        return ca_issuer_url, issuer_cert
