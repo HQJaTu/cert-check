@@ -25,6 +25,7 @@ import cryptography.exceptions
 import socket
 import ssl
 import asyncio
+import ipaddress
 from datetime import datetime, timedelta
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
@@ -56,6 +57,7 @@ class CertChecker:
     cert_from_host_conn_proto = None
     cert_from_host_conn_cipher = None
     cert_from_host_conn_cipher_bits = None
+    cert_from_host_matches_cert = None
 
     # Extensions of cert
     aia_ext = None
@@ -87,6 +89,7 @@ class CertChecker:
         self.cert_from_host_conn_proto = None
         self.cert_from_host_conn_cipher = None
         self.cert_from_host_conn_cipher_bits = None
+        self.cert_from_host_matches_cert = None
 
     async def load_pem_from_host_async(self, hostname, port, verbose=False):
         self.cert = None
@@ -97,12 +100,16 @@ class CertChecker:
         self.cert = x509.load_der_x509_certificate(server_cert_bytes, x509_openssl_backend)
         self._process_extensions(verbose=verbose)
         self.last_certificate_pem = self.cert.public_bytes(serialization.Encoding.PEM)
+        certificate_matches_hostname = self.verify_hostname(hostname)
 
         self.cert_from_disc = False
-        self.cert_from_host = host_ip_addr
+        self.cert_from_host = (host_ip_addr, hostname)
         self.cert_from_host_conn_proto = tls_version
         self.cert_from_host_conn_cipher = cipher_name
         self.cert_from_host_conn_cipher_bits = cipher_secret_size_bits
+        self.cert_from_host_matches_cert = certificate_matches_hostname
+
+        return certificate_matches_hostname
 
     async def _load_pem_from_host_asynchronous(self, hostname, port, verbose=False):
         server_cert_bytes = None
@@ -119,6 +126,8 @@ class CertChecker:
         if verbose:
             print("Info: Going for %s in %d" % (hostname, port))
         ctx = ssl._create_unverified_context()
+        ctx.set_default_verify_paths()
+        tls_version_name: str = None
         for tls_version_name in tls_versions:
             tls_ctx_version = tls_versions[tls_version_name]
             ctx.minimum_version = tls_ctx_version
@@ -142,6 +151,8 @@ class CertChecker:
                 raise ConnectionException(
                     "Failed to load certificate from %s:%d. OS error." % (hostname, port))
 
+            # Note: In an ultra-rare case, peername wasn't available.
+            #       Such an incident doesn't make any sense! Why wouldn't the other end of an open socket be available!
             host_ip_addr = writer.get_extra_info('peername')[0]
             ssl_obj = writer.get_extra_info('ssl_object')
             server_cert_bytes = ssl_obj.getpeercert(binary_form=True)
@@ -157,6 +168,81 @@ class CertChecker:
             tls_version_detected = tls_version_name
 
         return host_ip_addr, cipher_name, tls_version_detected, cipher_secret_size_bits, server_cert_bytes
+
+    def verify_hostname(self, hostname):
+        # OpenSSL code, see: https://github.com/openssl/openssl/blob/5f5edd7d3eb20c39177b9fa6422f1db57634e9e3/crypto/x509/v3_utl.c#L818
+        # This is something that needed to be done:
+        # hostname_bytes = hostname.encode()
+        # data_ptr = _ffi.from_buffer(hostname_bytes)
+        # res = _lib.X509_check_host(self.cert._x509,
+        #                           data_ptr, len(hostname_bytes),
+        #                           0, _ffi.NULL
+        #                           )
+        # if res:
+        #    return True
+        # That is not available.
+
+        # First alternate names. If any exist, subject won't be checked.
+        # RFC 6125: https://tools.ietf.org/html/rfc6125#section-6.4.4
+        # "As noted, a client MUST NOT seek a match for a reference identifier of CN-ID
+        #  if the presented identifiers include a DNS-ID, SRV-ID, URI-ID.
+        if self.alt_name_ext:
+            try:
+                hostname_ip = ipaddress.ip_address(hostname)
+                hostname_parts = None
+            except ValueError:
+                hostname_ip = None
+                hostname_parts = hostname.lower().split('.')
+
+            for alt_name in self.alt_name_ext.value:
+                if isinstance(alt_name, DNSName):
+                    if hostname_ip is None and '*' in alt_name.value:
+                        # Wildcard matching. Valid only for a DNS-name.
+                        if not alt_name.value.startswith('*'):
+                            # Invalid wildcard (sort of).
+                            # We're not fully RFC-compliant here. We're simply doing what most browsers do.
+                            # See: https://en.wikipedia.org/wiki/Wildcard_certificate#Examples
+                            continue
+                        host_to_validate = hostname_parts[:]  # clone
+                        altname = alt_name.value.lower().split('.')
+                        while host_to_validate and altname:
+                            hostname_part = host_to_validate.pop()
+                            altname_part = altname.pop()
+                            if altname_part == '*' and not host_to_validate and not altname:
+                                # Last element to match was an asterisk. Ignore hostname part.
+                                # We have a confident match.
+                                return True
+                            if not altname_part == hostname_part:
+                                # Nope. Part didn't match. Stop investigating this alternate name
+                                break
+                            # So far, so good.
+                            # Iterate more parts and make sure they'll match.
+                    else:
+                        # Non-wildcard. A very trivial comparison.
+                        if alt_name.value.lower() == hostname.lower():
+                            return True
+                elif isinstance(alt_name, IPAddress) and hostname_ip:
+                    if alt_name == hostname_ip:
+                        return True
+
+            return False
+
+        # Subject
+        # Hostname is compared against subject's common name only
+        # CA/Brower forum spec: https://cabforum.org/wp-content/uploads/BRv1.2.5.pdf#page=17
+        # "If present, this field MUST contain a single IP address or Fully-Qualified Domain Name
+        #  that is one of the values contained in the Certificate’s subjectAltName extension."
+        if not self.cert.subject:
+            return False
+
+        for subject_compo in self.cert.subject:
+            if not subject_compo.oid._name == 'commonName':
+                continue
+            if subject_compo.value == hostname:
+                return True
+            break
+
+        return False
 
     def _process_extensions(self, verbose=False):
         self.aia_ext = None
@@ -265,7 +351,9 @@ class CertChecker:
 
         if self.cert_from_host:
             connection_info = {
-                'host_ip': self.cert_from_host,
+                'host_ip': self.cert_from_host[0],
+                'requested_host': self.cert_from_host[1],
+                'cert_matches_requested_host': self.cert_from_host_matches_cert,
                 'protocol': self.cert_from_host_conn_proto,
                 'cipher_name': self.cert_from_host_conn_cipher,
                 'cipher_secret_size_bits': self.cert_from_host_conn_cipher_bits
@@ -432,7 +520,8 @@ class CertChecker:
                 ocsp_no_check_ext = None
                 if extensions:
                     try:
-                        extended_key_usage_name_ext = extensions.get_extension_for_class(x509_extensions.ExtendedKeyUsage)
+                        extended_key_usage_name_ext = extensions.get_extension_for_class(
+                            x509_extensions.ExtendedKeyUsage)
                     except x509_extensions.ExtensionNotFound:
                         extended_key_usage_name_ext = None
                     try:

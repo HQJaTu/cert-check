@@ -57,8 +57,8 @@ def print_verify_result(verify_result):
         connection_info = verify_result['certificate_from_host']
         print("Cert loaded from: %s, Protocol: %s, Cipher: %d-bit %s" % (
             connection_info['host_ip'], connection_info['protocol'],
-            connection_info['cipher_secret_size_bits'], connection_info['cipher_name'])
-              )
+            connection_info['cipher_secret_size_bits'], connection_info['cipher_name']
+        ))
     else:
         print("Cert loaded from ... unknown source")
 
@@ -73,6 +73,11 @@ def print_verify_result(verify_result):
         issuer_cert_key_hash_bytes = bytes()
 
     print("Certificate information:")
+    if verify_result['certificate_from_host']:
+        print("  Cert %s host %s it was requested from" % (
+            'matches' if verify_result['certificate_from_host']['cert_matches_requested_host'] else "doesn't match",
+            verify_result['certificate_from_host']['requested_host']
+        ))
     print("  Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
     print("    Validity: %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
     print("  Subject: %s" % subject_info)
