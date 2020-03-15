@@ -110,7 +110,10 @@ def print_verify_result(verify_result):
         if issuer_info['issuer_url_ok']:
             if issuer_info['issuer_url_connected_ok']:
                 if issuer_info['issuer_public_key_type']:
-                    issuer_cert_status = 'Ok'
+                    if issuer_info['cert_signed_by_aia_issuer']:
+                        issuer_cert_status = 'Ok'
+                    else:
+                        issuer_cert_status = "Connected, got certificate, but this is not issuer!"
                 else:
                     issuer_cert_status = 'Connected, but failed to read valid data'
             else:
