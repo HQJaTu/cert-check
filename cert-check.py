@@ -45,7 +45,7 @@ def print_verify_result(verify_result):
     for component_name in certificate_info['subject']:
         subject_str += "\n    %s=%s" % (component_name, certificate_info['subject'][component_name])
     responder_info = ''
-    if ocsp_info and ocsp_info['responder_name']:
+    if ocsp_info and ocsp_info['ocsp_url_connected_ok'] and ocsp_info['responder_name']:
         for component_name in ocsp_info['responder_name']:
             responder_info += "\n    %s=%s" % (component_name, ocsp_info['responder_name'][component_name])
 
@@ -66,7 +66,7 @@ def print_verify_result(verify_result):
     cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
     cert_key_hash.update(certificate_info['public_key'])
     cert_key_hash_bytes = cert_key_hash.finalize()
-    if issuer_info:
+    if issuer_info and issuer_info['issuer_url_ok'] and issuer_info['issuer_public_key_type']:
         issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=default_backend())
         issuer_cert_key_hash.update(issuer_info['issuer_public_key'])
         issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()

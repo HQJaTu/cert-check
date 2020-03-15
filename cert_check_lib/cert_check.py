@@ -333,11 +333,11 @@ class CertChecker:
                 ocsp_stat, issuer_data, ocsp_data = await self._verify_ocsp_async(verbose=verbose)
             else:
                 ocsp_stat = None
-                issuer_data = {}
+                issuer_data = {'issuer_url_ok': False}
                 ocsp_data = {}
         else:
             ocsp_stat = None
-            issuer_data = {}
+            issuer_data = {'issuer_url_ok': False}
             ocsp_data = {}
 
         cert_verifications = []
@@ -411,18 +411,34 @@ class CertChecker:
         return ocsp_uri
 
     async def _verify_ocsp_async(self, verbose=False):
+        issuer_data = {
+            'issuer_url_ok': False,
+            'issuer_url_connected_ok': None,
+            'issuer_public_key': None,
+            'issuer_public_key_type': None,
+            'cert_signed_by_aia_issuer': None
+        }
+        ocsp_data = {
+            'ocsp_url_ok': False,
+            'ocsp_url_connected_ok': None
+        }
+
         ocsp_uri = self.ocsp_uri()
         if not ocsp_uri:
             # raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
-            return None, {}, {}
+            return None, issuer_data, ocsp_data
 
+        issuer_data['issuer_url_ok'] = True
+        ocsp_data['ocsp_url_ok'] = True
         issuer_cert = None
         try:
             issuer_cert = await self._load_issuer_cert_async()
+            issuer_data['issuer_url_connected_ok'] = True
         except IssuerCertificateException:
+            issuer_data['issuer_url_connected_ok'] = False
             pass
         if not issuer_cert:
-            return None, {}, {}
+            return None, issuer_data, ocsp_data
 
         # Sanity check:
         # Is the certificate being investigated issued by the alleged "issuer" certificate we just loaded?
@@ -434,11 +450,8 @@ class CertChecker:
         issuer_cert_key_bytes = issuer_cert_key_asn1[1].asOctets()
         issuer_public_key_type = issuer_cert_public_key.__class__.__name__
 
-        issuer_data = {
-            'issuer_public_key': issuer_cert_key_bytes,
-            'issuer_public_key_type': issuer_public_key_type[1:],
-            'cert_signed_by_aia_issuer': None
-        }
+        issuer_data['issuer_public_key'] = issuer_cert_key_bytes
+        issuer_data['issuer_public_key_type'] = issuer_public_key_type[1:]
 
         # Basics:
         # Verify our target certificate is signed by our issuer certificate.
@@ -450,12 +463,15 @@ class CertChecker:
         if not certificate_verifies_ok:
             #raise IssuerCertificateException(
             #    'Attempt to get issuer certificate failed. Loaded certificate is not the certificate used as issuer.')
-            return None, issuer_data, {}
+            return None, issuer_data, ocsp_data
 
         # Go for OCSP!
         ocsp = OcspChecker(self.cert, issuer_cert, CertChecker.connection_timeout, self.loop)
         ocsp_stat, ocsp_data = await ocsp.request_async(ocsp_uri, verbose=verbose)
         self.last_ocsp_response = ocsp.last_ocsp_response
+
+        ocsp_data['ocsp_url_ok'] = True
+        ocsp_data['ocsp_url_connected_ok'] = ocsp_stat is not None
 
         if not ocsp_data['response_status_ok']:
             return False, issuer_data, ocsp_data
