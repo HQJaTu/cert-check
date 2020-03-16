@@ -156,7 +156,12 @@ class CertChecker:
 
             # Note: In an ultra-rare case, peername wasn't available.
             #       Such an incident doesn't make any sense! Why wouldn't the other end of an open socket be available!
-            host_ip_addr = writer.get_extra_info('peername')[0]
+            peername = writer.get_extra_info('peername')[0]
+            if not peername:
+                raise ConnectionException(
+                    "Failed to load certificate from %s:%d. OS error." % (hostname, port))
+
+            host_ip_addr = peername[0]
             ssl_obj = writer.get_extra_info('ssl_object')
             server_cert_bytes = ssl_obj.getpeercert(binary_form=True)
             cipher_name, tls_version_detected, cipher_secret_size_bits = ssl_obj.cipher()
