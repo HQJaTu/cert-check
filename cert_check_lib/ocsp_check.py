@@ -1,3 +1,5 @@
+# vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
+
 from cryptography.x509 import ocsp
 from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
 from cryptography.hazmat.primitives import serialization

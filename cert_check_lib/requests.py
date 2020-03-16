@@ -1,3 +1,5 @@
+# vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
+
 import aiohttp
 import asyncio
 from aiohttp import ClientConnectorError

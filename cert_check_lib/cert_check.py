@@ -1,3 +1,5 @@
+# vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
+
 from OpenSSL import crypto  # pip3 install pyOpenSSL
 from OpenSSL._util import (
     ffi as _ffi,
