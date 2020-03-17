@@ -135,28 +135,42 @@ class CertChecker:
             tls_ctx_version = tls_versions[tls_version_name]
             ctx.minimum_version = tls_ctx_version
 
+            retries = 3
             reader = None
             writer = None
-            try:
-                future = asyncio.open_connection(hostname, port, ssl=ctx, loop=self.loop)
+            peername = None
+            while retries >= 0:
+                retries -= 1
                 try:
-                    # Raise TimeoutError on error
-                    reader, writer = await asyncio.wait_for(future, timeout=CertChecker.connection_timeout)
-                except asyncio.TimeoutError:
+                    future = asyncio.open_connection(hostname, port, ssl=ctx, loop=self.loop)
+                    try:
+                        # Raise TimeoutError on error
+                        reader, writer = await asyncio.wait_for(future, timeout=CertChecker.connection_timeout)
+                    except asyncio.TimeoutError:
+                        raise ConnectionException(
+                            "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
+                except ssl.SSLError:
+                    continue
+                except (ConnectionResetError, socket.gaierror):
+                    raise ConnectionException("Failed to load certificate from %s:%d. OS error." % (
+                        hostname, port))
+                except OSError:
                     raise ConnectionException(
-                        "Failed to load certificate from %s:%d. Connection timed out." % (hostname, port))
-            except ssl.SSLError:
-                continue
-            except (ConnectionResetError, socket.gaierror):
-                raise ConnectionException("Failed to load certificate from %s:%d. OS error." % (
-                    hostname, port))
-            except OSError:
-                raise ConnectionException(
-                    "Failed to load certificate from %s:%d. OS error." % (hostname, port))
+                        "Failed to load certificate from %s:%d. OS error." % (hostname, port))
 
-            # Note: In an ultra-rare case, peername wasn't available.
-            #       Such an incident doesn't make any sense! Why wouldn't the other end of an open socket be available!
-            peername = writer.get_extra_info('peername')[0]
+                # Note: In an ultra-rare case, peername wasn't available.
+                #       Such an incident doesn't make any sense! Why wouldn't the other end of an open socket be available!
+                peername = writer.get_extra_info('peername')
+                if peername:
+                    break
+
+                if retries >= 0:
+                    # Try again!
+                    if verbose:
+                        print("Getting peername failed on an open socket. Retrying. %d" % retries)
+                    writer.close()
+                    continue
+
             if not peername:
                 raise ConnectionException(
                     "Failed to load certificate from %s:%d. OS error." % (hostname, port))
@@ -471,7 +485,7 @@ class CertChecker:
                                                          self.cert.signature_hash_algorithm)
         issuer_data['cert_signed_by_aia_issuer'] = certificate_verifies_ok
         if not certificate_verifies_ok:
-            #raise IssuerCertificateException(
+            # raise IssuerCertificateException(
             #    'Attempt to get issuer certificate failed. Loaded certificate is not the certificate used as issuer.')
             return None, issuer_data, ocsp_data
 
