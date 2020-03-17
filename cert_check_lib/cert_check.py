@@ -136,6 +136,19 @@ class CertChecker:
         return certificate_matches_hostname
 
     async def _load_pem_from_host_asynchronous(self, hostname, port, verbose=False):
+        """
+        Load X.509 certificate from a host
+
+        To-Do:
+        - cipher number used to connect: https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4
+        - JA3S: full value, comma separated list of TLS-version, ciphers and extensions
+        - Request OCSP-staple response: on/off
+        - Stapled OCSP: if any provided
+        :param hostname: host or IP-address to load the certificate from
+        :param port: TCP-port to connect
+        :param verbose:
+        :return:
+        """
         server_cert_bytes = None
         host_ip_addr = None
         cipher_name = None
