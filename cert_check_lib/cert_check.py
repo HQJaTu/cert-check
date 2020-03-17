@@ -67,6 +67,7 @@ class CertChecker:
     alt_name_ext = None
     key_id_ext = None
     cert_policies_ext = None
+    tls_feature_ext = None
 
     # Request results
     last_ocsp_response = None
@@ -271,6 +272,7 @@ class CertChecker:
         self.alt_name_ext = None
         self.key_id_ext = None
         self.cert_policies_ext = None
+        self.tls_feature_ext = None
 
         extensions = x509_extensions.Extensions(self.cert.extensions)
         try:
@@ -296,6 +298,12 @@ class CertChecker:
         except x509_extensions.ExtensionNotFound:
             if verbose:
                 print("Note: This certificate doesn't have CertificatePolicies extension")
+
+        try:
+            self.tls_feature_ext = extensions.get_extension_for_class(x509_extensions.TLSFeature)
+        except x509_extensions.ExtensionNotFound:
+            if verbose:
+                print("Note: This certificate doesn't have TLSFeature extension")
 
     async def verify_async(self, ocsp=True, verbose=False):
         if not self.cert:
@@ -373,6 +381,16 @@ class CertChecker:
                 if usage:
                     cert_verifications.append(usage[0])
 
+        ocsp_must_staple_version = None
+        if self.tls_feature_ext:
+            for feature in self.tls_feature_ext.value:
+                print(feature)
+                if feature == x509_extensions.TLSFeatureType.status_request:
+                    ocsp_must_staple_version = 1
+                elif feature == x509_extensions.TLSFeatureType.status_request2:
+                    ocsp_must_staple_version = 2
+
+
         if self.cert_from_host:
             connection_info = {
                 'host_ip': self.cert_from_host[0],
@@ -402,7 +420,8 @@ class CertChecker:
                 'ocsp_url': ocsp_uri,
                 'public_key': cert_key_bytes,
                 'public_key_type': public_key_type[1:],
-                'cert_verification': cert_verifications
+                'cert_verification': cert_verifications,
+                'ocsp_must_staple_version': ocsp_must_staple_version
             },
             'issuer': issuer_data,
             'ocsp_run': not ocsp_stat == None,
@@ -441,7 +460,9 @@ class CertChecker:
             'cert_signed_by_aia_issuer': None
         }
         ocsp_data = {
-            'ocsp_url_connected_ok': None
+            'ocsp_url_connected_ok': None,
+            'ocsp_certificate': None,
+            'ocsp_certificate_pem': None
         }
 
         ocsp_uri = self.ocsp_uri()
@@ -546,6 +567,7 @@ class CertChecker:
         # Assume verifying with issuer public key
         ocsp_certificate_used = False
         ocsp_certificate_valid = None
+        ocsp_certificate_valid_nocheck = None
         verification_public_key_type = issuer_public_key_type
         verification_public_key = issuer_cert_public_key
 
@@ -573,14 +595,11 @@ class CertChecker:
                         extended_key_usage_name_ext = None
                     try:
                         ocsp_no_check_ext = extensions.get_extension_for_class(x509_extensions.OCSPNoCheck)
+                        ocsp_certificate_valid_nocheck = verification_certificate.not_valid_after
                     except x509_extensions.ExtensionNotFound:
-                        ocsp_no_check_ext = None
+                        ocsp_certificate_valid_nocheck = False
 
-                    if ocsp_no_check_ext:
-                        # OCSP issuer has requested an implicit trust towards certificate
-                        ocsp_certificate_valid = True
-                        break
-                    elif extended_key_usage_name_ext and extended_key_usage_name_ext.value:
+                    if extended_key_usage_name_ext and extended_key_usage_name_ext.value:
                         ocsp_certificate_valid = False
                         if extended_key_usage_name_ext.value._usages and \
                                 x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_ext.value._usages:
@@ -599,8 +618,10 @@ class CertChecker:
             del ocsp_data['ocsp_certificates']
             if certificate_verifies_ok:
                 ocsp_data['ocsp_certificate'] = verification_certificate
+                ocsp_data['ocsp_certificate_pem'] = verification_certificate.public_bytes(serialization.Encoding.PEM)
             else:
                 ocsp_data['ocsp_certificate'] = None
+                ocsp_data['ocsp_certificate_pem'] = None
 
         # Perform the OCSP-response signature verification.
         signature_verifies_ok = self._verify_signature(verification_public_key_type,
@@ -622,6 +643,7 @@ class CertChecker:
         ocsp_data['signature_verify_status'] = signature_verifies_ok
         ocsp_data['signature_verify_ocsp_cert_used'] = ocsp_certificate_used
         ocsp_data['signature_verify_ocsp_cert_valid'] = ocsp_certificate_valid
+        ocsp_data['signature_verify_ocsp_cert_valid_nocheck'] = ocsp_certificate_valid_nocheck
 
         # Response verify 2:
         # Make sure response certificate serial number matches our target certificate serial

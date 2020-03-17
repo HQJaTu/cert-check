@@ -82,9 +82,6 @@ def print_verify_result(verify_result):
     print("  Cert %s expired" % ('has' if certificate_info['expired'] else 'not'))
     print("    Validity: %s - %s" % (certificate_info['valid_from'], certificate_info['valid_to']))
     print("  Subject: %s" % subject_str)
-    print("  Serial #: %s" % certificate_info['serial_nro'])
-    print("  Signature algo: %s" % certificate_info['signature_algorithm'])
-    print("  Public key (%s) SHA-1: %s" % (certificate_info['public_key_type'], cert_key_hash_bytes.hex()))
 
     if certificate_info['dns_names'] or certificate_info['ip_addresses'] or certificate_info['urls']:
         print("  Alternate names:")
@@ -103,6 +100,10 @@ def print_verify_result(verify_result):
     else:
         verification = '-'
     print("  Verification: %s" % verification)
+
+    print("  Serial #: %s" % certificate_info['serial_nro'])
+    print("  Signature algo: %s" % certificate_info['signature_algorithm'])
+    print("  Public key (%s) SHA-1: %s" % (certificate_info['public_key_type'], cert_key_hash_bytes.hex()))
 
     print("  Authority Information Access (AIA):")
     issuer_cert_status = '?'
@@ -124,6 +125,9 @@ def print_verify_result(verify_result):
     print("      Status: %s" % issuer_cert_status)
     print("    OCSP URL: %s" % certificate_info['ocsp_url'])
 
+    if certificate_info['ocsp_must_staple_version']:
+        print("    OCSP must-staple: version %d" % certificate_info['ocsp_must_staple_version'])
+
     print("Issuer:\n  Subject:%s" % issuer_str)
     if verify_result['ocsp_run'] and issuer_info:
         print("  Public key (%s) SHA-1: %s" % (issuer_info['issuer_public_key_type'], issuer_cert_key_hash_bytes.hex()))
@@ -140,13 +144,21 @@ def print_verify_result(verify_result):
             ocsp_info['responder_key_hash'].hex() if ocsp_info['responder_key_hash'] else ''))
         print("  Response hash algorithm: %s" % ocsp_info['hash_algorithm'])
         print("  Response signature hash algorithm: %s" % ocsp_info['signature_hash_algorithm'].__class__.__name__)
-        print("  Response signature verify status: %s, used %s%s certificate" % (
-            'Verifies ok' if ocsp_info['signature_verify_status'] else 'fail',
-            'invalid ' if ocsp_info['signature_verify_ocsp_cert_used'] and not ocsp_info[
-                'signature_verify_ocsp_cert_valid'] else 'valid ' if ocsp_info[
-                'signature_verify_ocsp_cert_used'] else '',
-            'OCSP' if ocsp_info['signature_verify_ocsp_cert_used'] else 'issuer'
+        if ocsp_info['signature_verify_ocsp_cert_used']:
+            if ocsp_info['signature_verify_ocsp_cert_valid']:
+                ocsp_response_signature_used_certificate = 'valid OCSP certificate'
+                if ocsp_info['signature_verify_ocsp_cert_valid_nocheck']:
+                    ocsp_response_signature_used_certificate += ', requested trust until %s' % ocsp_info[
+                        'signature_verify_ocsp_cert_valid_nocheck']
+            else:
+                ocsp_response_signature_used_certificate = 'invalid OCSP'
+        else:
+            ocsp_response_signature_used_certificate = 'issuer certificate'
+        print("  Response signature verify status: %s" % (
+            'Verifies ok' if ocsp_info['signature_verify_status'] else 'fail'
         ))
+        if ocsp_info['signature_verify_status']:
+            print("    Response signed by: %s" % ocsp_response_signature_used_certificate)
         print("  Revocation time: %s" % ocsp_info['revocation_time'])
         print("  Revocation reason: %s" % ocsp_info['revocation_reason'])
         print("  Produced at: %s" % ocsp_info['produced_at'])
@@ -201,11 +213,15 @@ def main():
     parser.add_argument('--print-ocsp-command', action='store_true',
                         help='Output openssl-command for OCSP-verification')
     parser.add_argument('--ocsp-response-file', metavar='OCSP-RESPONSE-FILE',
-                        help='Write DER-formatted OCSP-response into a file, if specified')
+                        help='Write DER-formatted OCSP-response into a file, if a response was received')
     parser.add_argument('--output-certificate-file', '--out-cert-file', metavar='PEM-CERT-FILE',
-                        help='Write PEM-formatted X.509 certificate into a file, if specified')
-    parser.add_argument('--output-issuer-certificate-file', '--out-issuer-cert-file', metavar='PEM-CERT-FILE',
-                        help='Write PEM-formatted issuer X.509 certificate into a file, if specified')
+                        help='Write PEM-formatted X.509 certificate into a file, if a certificate was loaded')
+    parser.add_argument('--output-issuer-certificate-file', '--out-issuer-cert-file', metavar='ISSUER-PEM-CERT-FILE',
+                        help='Write PEM-formatted issuer X.509 certificate into a file, '
+                             'if issuer certificate was loaded')
+    parser.add_argument('--output-ocsp-certificate-file', '--out-ocsp-cert-file', metavar='OCSP-PEM-CERT-FILE',
+                        help='Write PEM-formatted issuer X.509 certificate into a file, '
+                             'if OCSP-response used OCSP certifkcate')
     args = parser.parse_args()
 
     async_loop = asyncio.get_event_loop()
@@ -249,6 +265,9 @@ def main():
 
     if args.output_issuer_certificate_file and cc.last_issuer_certificate_pem:
         write_certificate_into_file(args.output_issuer_certificate_file, cc.last_issuer_certificate_pem)
+
+    if args.output_ocsp_certificate_file and verify_result['ocsp']['ocsp_certificate_pem']:
+        write_certificate_into_file(args.output_ocsp_certificate_file, verify_result['ocsp']['ocsp_certificate_pem'])
 
     if args.print_ocsp_command:
         if args.file:
