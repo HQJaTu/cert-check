@@ -1,5 +1,7 @@
 # vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
 
+# SPDX-License-Identifier: GPL-2.0
+
 # Define types for different exceptions for better error handling
 
 class ConnectionException(Exception):

@@ -1,5 +1,25 @@
 # vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
 
+# X.509 certificate checker library and tool
+# Copyright (C) 2020 Jari Turkia
+#
+# This program is free software; you can redistribute it and/or modify it under
+# the terms of the GNU General Public License version 2, as published by the
+# Free Software Foundation
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+# details (http://www.gnu.org/licenses/gpl.txt).
+
+__author__  = 'Jari Turkia'
+__email__   = 'jatu@hqcodeshop.fi'
+__url__     = 'https://blog.hqcodeshop.fi/'
+__git__     = 'https://github.com/HQJaTu/cert-check'
+__version__ = '0.3'
+__license__ = 'GPLv2'
+__banner__  = 'cert_check_lib v%s (%s)' % (__version__, __git__)
+
 from OpenSSL import crypto  # pip3 install pyOpenSSL
 from OpenSSL._util import (
     ffi as _ffi,
