@@ -267,12 +267,6 @@ def main():
 
     verify_stat, verify_result = async_loop.run_until_complete(cc.verify_async(verbose=not args.silent))
 
-    # In a nice and calm fashion, shut down any possible tasks that are pending.
-    for task in asyncio.Task.all_tasks():
-        task.cancel()
-    async_loop.run_until_complete(async_loop.shutdown_asyncgens())
-    async_loop.close()
-
     # Continue with any possible results
     if not args.silent:
         print_verify_result(verify_result)
