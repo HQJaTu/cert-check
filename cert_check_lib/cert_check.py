@@ -110,6 +110,14 @@ class CertChecker:
         self._can_collect_tls_extensions = False
         self._can_get_sct_details = False
 
+        # Check if any of the experimental features are available in this Python build
+        ctx = ssl._create_unverified_context()
+        if hasattr(ctx, 'ocsp_staple_callback'):
+            self._can_do_ocsp_stapling = True
+        if hasattr(ctx, 'collect_tls_extensions'):
+            self._can_collect_tls_extensions = True
+        del ctx
+
     def has_cert(self):
         return self.cert is not None
 
