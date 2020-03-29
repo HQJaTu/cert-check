@@ -12,13 +12,13 @@
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
 # details (http://www.gnu.org/licenses/gpl.txt).
 
-__author__  = 'Jari Turkia'
-__email__   = 'jatu@hqcodeshop.fi'
-__url__     = 'https://blog.hqcodeshop.fi/'
-__git__     = 'https://github.com/HQJaTu/cert-check'
+__author__ = 'Jari Turkia'
+__email__ = 'jatu@hqcodeshop.fi'
+__url__ = 'https://blog.hqcodeshop.fi/'
+__git__ = 'https://github.com/HQJaTu/cert-check'
 __version__ = '0.3'
 __license__ = 'GPLv2'
-__banner__  = 'cert_check_lib v%s (%s)' % (__version__, __git__)
+__banner__ = 'cert_check_lib v%s (%s)' % (__version__, __git__)
 
 from OpenSSL import crypto  # pip3 install pyOpenSSL
 from OpenSSL._util import (
@@ -88,6 +88,8 @@ class CertChecker:
     key_id_ext = None
     cert_policies_ext = None
     tls_feature_ext = None
+    sct_ext = None
+    sct_poison_ext = None
 
     # Request results
     last_ocsp_response = None
@@ -306,6 +308,8 @@ class CertChecker:
         self.key_id_ext = None
         self.cert_policies_ext = None
         self.tls_feature_ext = None
+        self.sct_ext = None
+        self.sct_poison_ext = None
 
         extensions = x509_extensions.Extensions(self.cert.extensions)
         try:
@@ -337,6 +341,17 @@ class CertChecker:
         except x509_extensions.ExtensionNotFound:
             if verbose:
                 print("Note: This certificate doesn't have TLSFeature extension")
+
+        try:
+            self.sct_ext = extensions.get_extension_for_class(x509_extensions.PrecertificateSignedCertificateTimestamps)
+        except x509_extensions.ExtensionNotFound:
+            if verbose:
+                print("Note: This certificate doesn't have PrecertificateSignedCertificateTimestamps extension")
+        try:
+            self.sct_poison_ext = extensions.get_extension_for_class(x509_extensions.PrecertPoison)
+        except x509_extensions.ExtensionNotFound:
+            if verbose:
+                print("Note: This certificate doesn't have PrecertPoison extension")
 
     async def verify_async(self, ocsp=True, verbose=False):
         if not self.cert:
@@ -417,11 +432,49 @@ class CertChecker:
         ocsp_must_staple_version = None
         if self.tls_feature_ext:
             for feature in self.tls_feature_ext.value:
-                print(feature)
                 if feature == x509_extensions.TLSFeatureType.status_request:
                     ocsp_must_staple_version = 1
                 elif feature == x509_extensions.TLSFeatureType.status_request2:
                     ocsp_must_staple_version = 2
+
+        sct_list = None
+        sct_poison_list = None
+        if self.sct_ext:
+            sct_list = []
+            for sct in self.sct_ext.value:
+                sct_entry = {
+                    'version': sct.version,
+                    'log_id': sct.log_id,
+                    'timestamp': sct.timestamp,
+                    'entry_type': sct.entry_type,
+                    'signature': sct._signature
+                }
+                sct_list.append(sct_entry)
+                if True:
+                    print('Version: %s' % sct.version)
+                    print('Log id: %s' % sct.log_id.hex())
+                    print('Timestamp: %s' % sct.timestamp)
+                    print('Type: %s' % sct.entry_type)
+                    print(sct._signature.hex())
+                    from pyasn1.compat.integer import (to_bytes, bitLength)
+                    part1, _remainder = asn1_decoder.decode(sct._signature)
+                    print("1: %s" % part1[0])
+                    print("2: %s" % part1[1])
+                    if False:
+                        b = int(part1[1]).to_bytes(2, byteorder='big')
+                        print(b)
+                        print("Go decode:")
+                        print(decode_signature(b))
+        if self.sct_poison_ext:
+            sct_list = []
+            for sct in self.sct_poison_ext.value:
+                sct_entry = {
+                    'version': sct.version,
+                    'log_id': sct.log_id,
+                    'timestamp': sct.timestamp,
+                    'entry_type': sct.entry_type
+                }
+                sct_poison_list.append(sct_entry)
 
 
         if self.cert_from_host:
@@ -454,7 +507,9 @@ class CertChecker:
                 'public_key': cert_key_bytes,
                 'public_key_type': public_key_type[1:],
                 'cert_verification': cert_verifications,
-                'ocsp_must_staple_version': ocsp_must_staple_version
+                'ocsp_must_staple_version': ocsp_must_staple_version,
+                'sct': sct_list,
+                'sct_poison': sct_poison_list
             },
             'issuer': issuer_data,
             'ocsp_run': not ocsp_stat == None,
