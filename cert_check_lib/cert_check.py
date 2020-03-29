@@ -81,6 +81,7 @@ class CertChecker:
     cert_from_host_conn_cipher = None
     cert_from_host_conn_cipher_bits = None
     cert_from_host_matches_cert = None
+    cert_from_host_ja3s = None
 
     # Extensions of cert
     aia_ext = None
@@ -96,9 +97,18 @@ class CertChecker:
     last_certificate_pem = None
     last_issuer_certificate_pem = None
 
+    # Experimental features:
+    _can_do_ocsp_stapling = False
+    _can_collect_tls_extensions = False
+    _can_get_sct_details = False
+
     def __init__(self, loop=None):
         self.cert = None
         self.loop = loop
+
+        self._can_do_ocsp_stapling = False
+        self._can_collect_tls_extensions = False
+        self._can_get_sct_details = False
 
     def has_cert(self):
         return self.cert is not None
@@ -116,11 +126,12 @@ class CertChecker:
         self.cert_from_host_conn_cipher = None
         self.cert_from_host_conn_cipher_bits = None
         self.cert_from_host_matches_cert = None
+        self.cert_from_host_ja3s = None
 
     async def load_pem_from_host_async(self, hostname, port, verbose=False):
         self.cert = None
 
-        host_ip_addr, cipher_name, tls_version, cipher_secret_size_bits, server_cert_bytes = \
+        host_ip_addr, cipher_name, tls_version, cipher_secret_size_bits, server_cert_bytes, ja3s = \
             await self._load_pem_from_host_asynchronous(hostname, port, verbose)
 
         self.cert = x509.load_der_x509_certificate(server_cert_bytes, x509_openssl_backend)
@@ -134,6 +145,7 @@ class CertChecker:
         self.cert_from_host_conn_cipher = cipher_name
         self.cert_from_host_conn_cipher_bits = cipher_secret_size_bits
         self.cert_from_host_matches_cert = certificate_matches_hostname
+        self.cert_from_host_ja3s = ja3s
 
         return certificate_matches_hostname
 
@@ -157,6 +169,17 @@ class CertChecker:
         tls_version_detected = None
         cipher_secret_size_bits = None
 
+        def ocsp_staple_cb(socket, ocsp_response, context):
+            print("ocsp_cb()!")
+            # print("  - Socket: %s" % dir(socket))
+            print("  - Socket %d shared ciphers" % len(socket.shared_ciphers()))
+            if ocsp_response:
+                print("  - OCSP: %s" % ocsp_response.hex())
+            else:
+                print("  - OCSP: %s" % ocsp_response)
+            print("ocsp_cb() done.")
+            return True
+
         tls_versions = {
             'TLSv1.2': ssl.TLSVersion.TLSv1_2,
             'TLSv1.1': ssl.TLSVersion.TLSv1_1,
@@ -166,7 +189,13 @@ class CertChecker:
             print("Info: Going for %s in %d" % (hostname, port))
         ctx = ssl._create_unverified_context()
         ctx.set_default_verify_paths()
+        if self._can_do_ocsp_stapling:
+            ctx.ocsp_staple_callback = ocsp_staple_cb
+        if self._can_collect_tls_extensions:
+            ctx.collect_tls_extensions = True
+
         tls_version_name: str = None
+        ja3s: str = None
         for tls_version_name in tls_versions:
             tls_ctx_version = tls_versions[tls_version_name]
             ctx.minimum_version = tls_ctx_version
@@ -175,7 +204,7 @@ class CertChecker:
             reader = None
             writer = None
             peername = None
-            while retries >= 0:
+            while retries > 0:
                 retries -= 1
                 try:
                     future = asyncio.open_connection(hostname, port, ssl=ctx, loop=self.loop)
@@ -215,6 +244,14 @@ class CertChecker:
             ssl_obj = writer.get_extra_info('ssl_object')
             server_cert_bytes = ssl_obj.getpeercert(binary_form=True)
             cipher_name, tls_version_detected, cipher_secret_size_bits = ssl_obj.cipher()
+            if self._can_collect_tls_extensions:
+                proto_id, cipher_id, tls_extensions = ssl_obj._sslobj.peer_info()
+                extension_types = []
+                if tls_extensions:
+                    for extension in tls_extensions:
+                        extension_types.append(str(extension['type']))
+                ja3s = "%d,%d,%s" % (proto_id, cipher_id, '-'.join(extension_types))
+                print("JA3S: %s" % ja3s)
             writer.close()
             break
 
@@ -225,7 +262,7 @@ class CertChecker:
         if tls_version_name > tls_version_detected:
             tls_version_detected = tls_version_name
 
-        return host_ip_addr, cipher_name, tls_version_detected, cipher_secret_size_bits, server_cert_bytes
+        return host_ip_addr, cipher_name, tls_version_detected, cipher_secret_size_bits, server_cert_bytes, ja3s
 
     def verify_hostname(self, hostname):
         # OpenSSL code, see: https://github.com/openssl/openssl/blob/5f5edd7d3eb20c39177b9fa6422f1db57634e9e3/crypto/x509/v3_utl.c#L818
@@ -450,7 +487,7 @@ class CertChecker:
                     'signature': sct._signature
                 }
                 sct_list.append(sct_entry)
-                if True:
+                if self._can_get_sct_details:
                     print('Version: %s' % sct.version)
                     print('Log id: %s' % sct.log_id.hex())
                     print('Timestamp: %s' % sct.timestamp)
@@ -475,7 +512,6 @@ class CertChecker:
                     'entry_type': sct.entry_type
                 }
                 sct_poison_list.append(sct_entry)
-
 
         if self.cert_from_host:
             connection_info = {
