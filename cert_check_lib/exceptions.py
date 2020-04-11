@@ -30,3 +30,7 @@ class MimeTypeException(Exception):
 
 class UnsupportedPublicKeyAlgorithmException(Exception):
     pass
+
+
+class CTLogException(Exception):
+    pass

@@ -16,7 +16,7 @@ __author__ = 'Jari Turkia'
 __email__ = 'jatu@hqcodeshop.fi'
 __url__ = 'https://blog.hqcodeshop.fi/'
 __git__ = 'https://github.com/HQJaTu/cert-check'
-__version__ = '0.3'
+__version__ = '0.4'
 __license__ = 'GPLv2'
 __banner__ = 'cert_check_lib v%s (%s)' % (__version__, __git__)
 
@@ -53,6 +53,7 @@ from datetime import datetime, timedelta
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
 from .requests import RequestsSession
+from .ct_log_list import CTLogList
 from .exceptions import *
 
 
@@ -73,6 +74,7 @@ class CertChecker:
     ocsp_response_expiry_days = DEFAULT_OCSP_RESPONSE_EXPIRY_DAYS
 
     loop = None
+    ct_logs = None
 
     cert = None
     cert_from_disc = False
@@ -105,6 +107,7 @@ class CertChecker:
     def __init__(self, loop=None):
         self.cert = None
         self.loop = loop
+        self.ct_logs = CTLogList()
 
         self._can_do_ocsp_stapling = False
         self._can_collect_tls_extensions = False
@@ -136,6 +139,9 @@ class CertChecker:
         self.cert_from_host_matches_cert = None
         self.cert_from_host_ja3s = None
 
+        if not self.ct_logs.has_logs():
+            self.ct_logs.get_logs_async(self.loop)
+
     async def load_pem_from_host_async(self, hostname, port, verbose=False):
         self.cert = None
 
@@ -154,6 +160,9 @@ class CertChecker:
         self.cert_from_host_conn_cipher_bits = cipher_secret_size_bits
         self.cert_from_host_matches_cert = certificate_matches_hostname
         self.cert_from_host_ja3s = ja3s
+
+        if not self.ct_logs.has_logs():
+            await self.ct_logs.get_logs_async(self.loop)
 
         return certificate_matches_hostname
 
@@ -493,9 +502,16 @@ class CertChecker:
                     'entry_type': sct.entry_type,
                     'tls_message_sign_algo': None,
                     'tls_message_sign_hash_type': None,
-                    'signature': sct._signature
+                    'signature': sct._signature,
+                    'log_desc': None
                 }
+
+                log = self.ct_logs.find_log(sct.log_id)
+                if log:
+                    sct_entry['log_desc'] = log.description
                 sct_list.append(sct_entry)
+
+
                 if self._can_get_sct_details:
                     print('Version: %s' % sct.version)
                     print('Log id: %s' % sct.log_id.hex())

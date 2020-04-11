@@ -14,19 +14,23 @@
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
 # details (http://www.gnu.org/licenses/gpl.txt).
 
-__author__  = 'Jari Turkia'
-__email__   = 'jatu@hqcodeshop.fi'
-__url__     = 'https://blog.hqcodeshop.fi/'
-__git__     = 'https://github.com/HQJaTu/cert-check'
-__version__ = '0.3'
+__author__ = 'Jari Turkia'
+__email__ = 'jatu@hqcodeshop.fi'
+__url__ = 'https://blog.hqcodeshop.fi/'
+__git__ = 'https://github.com/HQJaTu/cert-check'
+__version__ = '0.4'
 __license__ = 'GPLv2'
-__banner__  = 'cert-check v%s (%s)' % (__version__, __git__)
+__banner__ = 'cert-check v%s (%s)' % (__version__, __git__)
 
 import argparse
 from cert_check_lib import *
 from urllib.parse import urlparse
 import shlex
 import asyncio
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import (
+    default_backend
+)
 
 
 def write_ocsp_response_into_file(ocsp_response_file, ocsp_response):
@@ -215,6 +219,13 @@ def print_verify_result(verify_result):
             failures.append('OCSP')
     else:
         print("OCSP not verified")
+
+    print("Certificate Transparency status: %s" % '?')
+    if certificate_info['sct']:
+        for sct in certificate_info['sct']:
+            print("  Log: %s" % sct['log_desc'])
+    else:
+        print("  No CT-log entries found from certificate")
 
     if failures:
         print("Done. Failures: %s" % ', '.join(failures))
