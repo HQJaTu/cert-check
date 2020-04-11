@@ -178,14 +178,11 @@ class CertChecker:
         cipher_secret_size_bits = None
 
         def ocsp_staple_cb(socket, ocsp_response, context):
-            print("ocsp_cb()!")
-            # print("  - Socket: %s" % dir(socket))
-            print("  - Socket %d shared ciphers" % len(socket.shared_ciphers()))
+            #print("  - Socket %d shared ciphers" % len(socket.shared_ciphers()))
             if ocsp_response:
-                print("  - OCSP: %s" % ocsp_response.hex())
+                print("  - Stapled OCSP: %s" % ocsp_response.hex())
             else:
-                print("  - OCSP: %s" % ocsp_response)
-            print("ocsp_cb() done.")
+                print("  - Stapled OCSP: %s" % ocsp_response)
             return True
 
         tls_versions = {
@@ -259,7 +256,8 @@ class CertChecker:
                     for extension in tls_extensions:
                         extension_types.append(str(extension['type']))
                 ja3s = "%d,%d,%s" % (proto_id, cipher_id, '-'.join(extension_types))
-                print("JA3S: %s" % ja3s)
+                if verbose:
+                    print("JA3S: %s" % ja3s)
             writer.close()
             break
 
@@ -394,9 +392,10 @@ class CertChecker:
                 print("Note: This certificate doesn't have PrecertificateSignedCertificateTimestamps extension")
         try:
             self.sct_poison_ext = extensions.get_extension_for_class(x509_extensions.PrecertPoison)
-        except x509_extensions.ExtensionNotFound:
             if verbose:
-                print("Note: This certificate doesn't have PrecertPoison extension")
+                print("Note: This certificate has PrecertPoison extension")
+        except x509_extensions.ExtensionNotFound:
+            pass
 
     async def verify_async(self, ocsp=True, verbose=False):
         if not self.cert:
@@ -492,6 +491,8 @@ class CertChecker:
                     'log_id': sct.log_id,
                     'timestamp': sct.timestamp,
                     'entry_type': sct.entry_type,
+                    'tls_message_sign_algo': None,
+                    'tls_message_sign_hash_type': None,
                     'signature': sct._signature
                 }
                 sct_list.append(sct_entry)
@@ -501,6 +502,37 @@ class CertChecker:
                     print('Timestamp: %s' % sct.timestamp)
                     print('Type: %s' % sct.entry_type)
                     print(sct._signature.hex())
+                    # openssl/crypto/ct/ct_sct.c:
+                    # SCT_get_signature_nid() will return three types
+                    # openssl/include/openssl/obj_mac.h:
+                    # NID_undef = 0 = 0x0
+                    # NID_ecdsa_with_SHA256 = 794 = 0x031a
+                    # NID_sha256WithRSAEncryption = 668 = 0x029c
+                    # Reality, hash types:
+                    # TLSEXT_hash_none = 0
+                    # TLSEXT_hash_md5 = 1
+                    # TLSEXT_hash_sha1 = 2
+                    # TLSEXT_hash_sha224 = 3
+                    # TLSEXT_hash_sha256 = 4, only supported in SCT_get_signature_nid()
+
+                    # TLSEXT_hash_sha384 = 5
+                    # TLSEXT_hash_sha512 = 6
+                    # Reality, signature types:
+                    # TLSEXT_signature_anonymous = 0
+                    # TLSEXT_signature_rsa = 1, supported in SCT_get_signature_nid()
+
+                    # TLSEXT_signature_dsa = 2
+                    # TLSEXT_signature_ecdsa = 3, supported in SCT_get_signature_nid()
+
+                    hash_type_id = sct._backend._lib.SCT_get_signature_nid(sct._sct)
+
+                    if hash_type_id == 794:
+                        hash_type = ('SHA256', 'ECDSA')
+                    elif hash_type_id == 668:
+                        hash_type = ('SHA256', 'RSA')
+                    else:
+                        hash_type = ('?', '?')
+                    print('Hash type: %s,%s (%d)' % (hash_type[0], hash_type[1], hash_type_id))
                     from pyasn1.compat.integer import (to_bytes, bitLength)
                     part1, _remainder = asn1_decoder.decode(sct._signature)
                     print("1: %s" % part1[0])
