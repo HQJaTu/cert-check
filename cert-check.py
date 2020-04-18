@@ -239,6 +239,8 @@ def main():
                         help='Host to connect to for extracting a TLS-certificate')
     parser.add_argument('--file', '--cert-file', metavar='PEM-CERT-FILE',
                         help='TLS-certificate PEM-file to read')
+    parser.add_argument('--issuer-file', metavar='PEM-ISSUER-CERT-FILE',
+                        help='Issuer TLS-certificate PEM-file to read')
     parser.add_argument('--silent', action='store_true', default=False,
                         help='Normal mode is to be verbose and output human-readable information.')
     parser.add_argument('--print-ocsp-command', action='store_true',
@@ -276,7 +278,15 @@ def main():
     if not cc.has_cert():
         raise ValueError("Cannot proceed, no cert!")
 
-    verify_stat, verify_result = async_loop.run_until_complete(cc.verify_async(verbose=not args.silent))
+    # Need to import issuer certificate?
+    issuer_cert = None
+    if args.issuer_file:
+        issuer_cert = CertChecker.do_load_pem_from_file(args.issuer_file)
+
+    # Go verify!
+    verify_func = cc.verify_async(issuer_cert=issuer_cert,
+                                  verbose=not args.silent)
+    verify_stat, verify_result = async_loop.run_until_complete(verify_func)
 
     # Continue with any possible results
     if not args.silent:

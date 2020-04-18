@@ -18,10 +18,12 @@ Also, an OCSP-check is made if certificate includes appropriate information in A
 ## Usage:
 ```text
 usage: cert-check.py [-h] [--connect HOSTNAME:PORT] [--file PEM-CERT-FILE]
-                     [--silent] [--print-ocsp-command]
+                     [--issuer-file PEM-ISSUER-CERT-FILE] [--silent]
+                     [--print-ocsp-command]
                      [--ocsp-response-file OCSP-RESPONSE-FILE]
                      [--output-certificate-file PEM-CERT-FILE]
-                     [--output-issuer-certificate-file PEM-CERT-FILE]
+                     [--output-issuer-certificate-file ISSUER-PEM-CERT-FILE]
+                     [--output-ocsp-certificate-file OCSP-PEM-CERT-FILE]
 
 DNS query helper tool
 
@@ -31,18 +33,23 @@ optional arguments:
                         Host to connect to for extracting a TLS-certificate
   --file PEM-CERT-FILE, --cert-file PEM-CERT-FILE
                         TLS-certificate PEM-file to read
+  --issuer-file PEM-ISSUER-CERT-FILE
+                        Issuer TLS-certificate PEM-file to read
   --silent              Normal mode is to be verbose and output human-readable
                         information.
   --print-ocsp-command  Output openssl-command for OCSP-verification
   --ocsp-response-file OCSP-RESPONSE-FILE
-                        Write DER-formatted OCSP-response into a file, if
-                        specified
+                        Write DER-formatted OCSP-response into a file, if a
+                        response was received
   --output-certificate-file PEM-CERT-FILE, --out-cert-file PEM-CERT-FILE
                         Write PEM-formatted X.509 certificate into a file, if
-                        specified
-  --output-issuer-certificate-file PEM-CERT-FILE, --out-issuer-cert-file PEM-CERT-FILE
+                        a certificate was loaded
+  --output-issuer-certificate-file ISSUER-PEM-CERT-FILE, --out-issuer-cert-file ISSUER-PEM-CERT-FILE
                         Write PEM-formatted issuer X.509 certificate into a
-                        file, if specified
+                        file, if issuer certificate was loaded
+  --output-ocsp-certificate-file OCSP-PEM-CERT-FILE, --out-ocsp-cert-file OCSP-PEM-CERT-FILE
+                        Write PEM-formatted issuer X.509 certificate into a
+                        file, if OCSP-response used OCSP certifkcate
 ```
 
 ### Example
@@ -51,8 +58,9 @@ optional arguments:
 ```
 will result something like this:
 ```text
-Cert loaded from: 217.114.92.150, Protocol: TLSv1.2, Cipher: 128-bit ECDHE-RSA-AES128-GCM-SHA256
+Cert loaded from: 217.114.92.150, Protocol: TLSv1.3, Cipher: 128-bit TLS_AES_128_GCM_SHA256
 Certificate information:
+  Cert doesn't match host tekes.fi it was requested from
   Cert not expired
     Validity: 2019-01-12 00:00:00 - 2021-01-20 12:00:00
   Subject:
@@ -61,13 +69,15 @@ Certificate information:
     organizationName=Business Finland Oy
     organizationalUnitName=Marketing and communications
     commonName=www.horisontti2020.fi
+  Alternate names:
+    DNS-names: www.horisontti2020.fi, horisontti2020.fi
+  Verification: OV
   Serial #: 10865345032188387016727712607843656671
   Signature algo: sha256
   Public key (RSAPublicKey) SHA-1: a3ee1646edfa1db59ceb7c2dc3b5b8c370e3d988
-  Alternate names:
-    DNS-names: www.horisontti2020.fi, horisontti2020.fi
   Authority Information Access (AIA):
     Issuer certificate URL: http://cacerts.digicert.com/DigiCertSHA2HighAssuranceServerCA.crt
+      Status: Ok
     OCSP URL: http://ocsp.digicert.com
 Issuer:
   Subject:
@@ -83,15 +93,20 @@ OCSP status: fail!
   Responder key hash: 5168ff90af0207753cccd9656462a212b859723b
   Response hash algorithm: SHA1
   Response signature hash algorithm: SHA256
-  Response signature verify status: Verifies ok, used issuer certificate
+  Response signature verify status: Verifies ok
+    Response signed by: issuer certificate
   Revocation time: 2019-06-04 13:59:36
   Revocation reason: None
-  Produced at: 2020-03-07 18:09:01
-  This update: 2020-03-07 18:09:01, valid
-  Next update: 2020-03-14 17:24:01
+  Produced at: 2020-04-17 17:09:50
+  This update: 2020-04-17 17:09:50, valid
+  Next update: 2020-04-24 16:24:50
   OCSP serial number: Matches certificate serial number
   OCSP issuer key hash: Matches issuer certificate key SHA1 hash
   OCSP issuer name hash: Matches issuer certificate name SHA1 hash
+Certificate Transparency status: ?
+  Log: Google 'Pilot' log
+  Log: DigiCert Log Server 2
+  Log: Google 'Skydiver' log
 Done. Failures: OCSP
 ```
 

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='cert-check',
-    version='0.4',
+    version='0.4.1',
     url='https://github.com/HQJaTu/cert-check',
     license='GPLv2',
     author='Jari Turkia',
@@ -23,7 +23,8 @@ setup(
         'Programming Language :: Python :: 3.8'
     ],
     python_requires='>=3.7, <4',
-    install_requires=['PySSL', 'pyOpenSSL', 'requests', 'cryptography>=2.8', 'pyasn1', 'aiohttp'],
+    install_requires=['PySSL', 'pyOpenSSL', 'requests', 'cryptography>=2.8',
+                      'pyasn1', 'pyasn1_modules', 'aiohttp'],
     scripts=['cert-check.py'],
     packages=find_packages()
 )
