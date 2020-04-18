@@ -121,6 +121,7 @@ class CertChecker:
             self._can_do_ocsp_stapling = True
         if hasattr(ctx, 'collect_tls_extensions'):
             self._can_collect_tls_extensions = True
+            self._can_get_sct_details = True
         del ctx
 
     def has_cert(self):
@@ -262,6 +263,11 @@ class CertChecker:
             cipher_name, tls_version_detected, cipher_secret_size_bits = ssl_obj.cipher()
             if self._can_collect_tls_extensions:
                 proto_id, cipher_id, tls_extensions = ssl_obj._sslobj.peer_info()
+                peer_sig_hash_type, peer_sig_type = ssl_obj._sslobj.peer_signing_types()
+                sig_hash_type, sig_type = ssl_obj._sslobj.signing_types()
+                if verbose:
+                    print("TLS peer message signing with: %s (%s)" % (peer_sig_hash_type, peer_sig_type))
+                    print("TLS message signing with: %s (%s)" % (sig_hash_type, sig_type))
                 extension_types = []
                 if tls_extensions:
                     for extension in tls_extensions:
@@ -572,6 +578,18 @@ class CertChecker:
                     else:
                         hash_type = ('?', '?')
                     print('Hash type: %s,%s (%d)' % (hash_type[0], hash_type[1], hash_type_id))
+
+                    # Extensions:
+                    ptrptr = sct._backend._ffi.new("unsigned char **")
+                    ext_count = sct._backend._lib.SCT_get0_extensions(sct._sct, ptrptr)
+                    if ext_count:
+                        sct._backend.openssl_assert(ptrptr[0] != sct._backend._ffi.NULL)
+                        exts = sct._backend._ffi.buffer(ptrptr[0], ext_count)[:]
+                    else:
+                        exts = []
+                    print("SCT extensions count: %d" % len(exts))
+
+                    # Signature:
                     from pyasn1.compat.integer import (to_bytes, bitLength)
                     part1, _remainder = asn1_decoder.decode(sct._signature)
                     print("1: %s" % part1[0])
