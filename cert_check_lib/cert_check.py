@@ -53,7 +53,9 @@ from datetime import datetime, timedelta
 from pyasn1.codec.ber import decoder as asn1_decoder
 from .ocsp_check import OcspChecker
 from .requests import RequestsSession
+from .ct_log import CTLog
 from .ct_log_list import CTLogList
+from .crypto_signature import CryptoSignature
 from .exceptions import *
 
 
@@ -187,7 +189,7 @@ class CertChecker:
         cipher_secret_size_bits = None
 
         def ocsp_staple_cb(socket, ocsp_response, context):
-            #print("  - Socket %d shared ciphers" % len(socket.shared_ciphers()))
+            # print("  - Socket %d shared ciphers" % len(socket.shared_ciphers()))
             if ocsp_response:
                 print("  - Stapled OCSP: %s" % ocsp_response.hex())
             else:
@@ -461,7 +463,7 @@ class CertChecker:
         ca_issuer = self.issuer_cert_uri()
         if self.aia_ext:
             if ocsp:
-                ocsp_stat, issuer_data, ocsp_data = await self._verify_ocsp_async(verbose=verbose)
+                ocsp_stat, issuer_data, ocsp_data, issuer_cert = await self._verify_ocsp_async(verbose=verbose)
             else:
                 ocsp_stat = None
                 issuer_data = {'issuer_url_ok': False}
@@ -506,11 +508,32 @@ class CertChecker:
                     'log_desc': None
                 }
 
+                tbs_cert_bytes = CTLog._tbscert_bytes_without_ct(self.cert)
+                tbs_cert_length_3_bytes = len(tbs_cert_bytes).to_bytes(3, byteorder='big')
+                print("sct.version.val: %d" % sct.version.value) # sct.version.val
+                print("sct.timestamp: %s" % sct._backend._lib.SCT_get_timestamp(sct._sct))
+                print("sct.extensions_len: %d" % 0) # XXX!
+                print("ee_cert lens: %d, %d, %d, %d" % (len(tbs_cert_bytes),
+                                                        int(tbs_cert_length_3_bytes[0]),
+                                                        int(tbs_cert_length_3_bytes[1]),
+                                                        int(tbs_cert_length_3_bytes[2])))
+                #print(self.cert.tbs_certificate_bytes.hex())
+                print(tbs_cert_bytes.hex())
+                print("tbscert.len: %s" % '%ds' % len(tbs_cert_bytes))
+                print("sct.signature: %s" % sct._signature.hex()) # sct.signature.hex()
+
                 log = self.ct_logs.find_log(sct.log_id)
                 if log:
                     sct_entry['log_desc'] = log.description
+                    print("log.pubkey: %s" % log.pubkey()) # log.pubkey
                 sct_list.append(sct_entry)
 
+                issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
+                print(issuer_data['issuer_public_key'].hex())
+                issuer_cert_key_hash.update(issuer_data['issuer_public_key'])
+                issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
+                print("issuer_cert.pubkey_hash: %s" % issuer_cert_key_hash_bytes.hex())
+                print("signature_input: %s" % CTLog._create_signature_input_precert(self.cert, sct, issuer_cert).hex())
 
                 if self._can_get_sct_details:
                     print('Version: %s' % sct.version)
@@ -648,7 +671,7 @@ class CertChecker:
         ocsp_uri = self.ocsp_uri()
         if not ocsp_uri:
             # raise OCSPUrlException("Cannot do get OCSP URI! Cert has no URL in AIA.")
-            return None, issuer_data, ocsp_data
+            return None, issuer_data, ocsp_data, None
 
         issuer_cert = None
         try:
@@ -661,7 +684,7 @@ class CertChecker:
             issuer_data['issuer_url_ok'] = False
         if not issuer_cert:
             issuer_data['issuer_url_connected_ok'] = False
-            return None, issuer_data, ocsp_data
+            return None, issuer_data, ocsp_data, issuer_cert
 
         issuer_data['issuer_url_connected_ok'] = True
 
@@ -680,15 +703,15 @@ class CertChecker:
 
         # Basics:
         # Verify our target certificate is signed by our issuer certificate.
-        certificate_verifies_ok = self._verify_signature(issuer_public_key_type,
-                                                         issuer_cert_public_key,
-                                                         self.cert.signature, self.cert.tbs_certificate_bytes,
-                                                         self.cert.signature_hash_algorithm)
+        certificate_verifies_ok = CryptoSignature.verify_signature(issuer_public_key_type,
+                                                                   issuer_cert_public_key,
+                                                                   self.cert.signature, self.cert.tbs_certificate_bytes,
+                                                                   self.cert.signature_hash_algorithm)
         issuer_data['cert_signed_by_aia_issuer'] = certificate_verifies_ok
         if not certificate_verifies_ok:
             # raise IssuerCertificateException(
             #    'Attempt to get issuer certificate failed. Loaded certificate is not the certificate used as issuer.')
-            return None, issuer_data, ocsp_data
+            return None, issuer_data, ocsp_data, issuer_cert
 
         # Go for OCSP!
         ocsp = OcspChecker(self.cert, issuer_cert, CertChecker.connection_timeout, self.loop)
@@ -698,7 +721,7 @@ class CertChecker:
         ocsp_data['ocsp_url_connected_ok'] = ocsp_stat is not None
 
         if not ocsp_data['response_status_ok']:
-            return False, issuer_data, ocsp_data
+            return False, issuer_data, ocsp_data, issuer_cert
 
         now = datetime.utcnow()
 
@@ -785,11 +808,11 @@ class CertChecker:
                                 x509_oid.ExtendedKeyUsageOID.OCSP_SIGNING in extended_key_usage_name_ext.value._usages:
                             # Both the X.509 certificate provided to us in the OCSP-response and
                             # target certificate being verified MUST be issued by the _SAME_ issuer.
-                            certificate_verifies_ok = self._verify_signature(issuer_public_key_type,
-                                                                             issuer_cert_public_key,
-                                                                             verification_certificate.signature,
-                                                                             verification_certificate.tbs_certificate_bytes,
-                                                                             verification_certificate.signature_hash_algorithm)
+                            certificate_verifies_ok = CryptoSignature.verify_signature(issuer_public_key_type,
+                                                                                       issuer_cert_public_key,
+                                                                                       verification_certificate.signature,
+                                                                                       verification_certificate.tbs_certificate_bytes,
+                                                                                       verification_certificate.signature_hash_algorithm)
                             if certificate_verifies_ok:
                                 ocsp_certificate_valid = True
                                 break
@@ -804,10 +827,10 @@ class CertChecker:
                 ocsp_data['ocsp_certificate_pem'] = None
 
         # Perform the OCSP-response signature verification.
-        signature_verifies_ok = self._verify_signature(verification_public_key_type,
-                                                       verification_public_key,
-                                                       signature, ocsp_data['tbs_response_bytes'],
-                                                       ocsp_data['signature_hash_algorithm'])
+        signature_verifies_ok = CryptoSignature.verify_signature(verification_public_key_type,
+                                                                 verification_public_key,
+                                                                 signature, ocsp_data['tbs_response_bytes'],
+                                                                 ocsp_data['signature_hash_algorithm'])
         # Apply RFC 6960, 4.2.2.2. rule 3), if applicable
         if ocsp_certificate_used and signature_verifies_ok and not ocsp_certificate_valid:
             signature_verifies_ok = False
@@ -881,7 +904,7 @@ class CertChecker:
             ocsp_stat = False
             ocsp_data['issuer_name_hash_match'] = False
 
-        # Response verify 4:
+        # Response verify 5:
         # OCSP-response this update time is "sufficiently recent".
         # If next update is available, use that as a criteria for "sufficiently recent".
         update_time_ok = None
@@ -910,50 +933,7 @@ class CertChecker:
 
         # Verify done!
 
-        return ocsp_stat, issuer_data, ocsp_data
-
-    @staticmethod
-    def _verify_signature(public_key_type, public_key, signature, payload, hash_algorithm):
-        signature_verifies_ok = None
-
-        if public_key_type == '_RSAPublicKey':
-            try:
-                public_key.verify(
-                    signature,
-                    payload,
-                    asymmetric.padding.PKCS1v15(),
-                    hash_algorithm,
-                )
-                signature_verifies_ok = True
-            except cryptography.exceptions.InvalidSignature:
-                signature_verifies_ok = False
-        elif public_key_type == '_DSAPublicKey':
-            pass
-        elif public_key_type == '_EllipticCurvePublicKey':
-            ecdsa_algorithm = asymmetric.ec.ECDSA(hash_algorithm)
-            try:
-                public_key.verify(
-                    signature,
-                    payload,
-                    ecdsa_algorithm
-                )
-                signature_verifies_ok = True
-            except cryptography.exceptions.InvalidSignature:
-                signature_verifies_ok = False
-        elif public_key_type == '_DHPublicKey':
-            pass
-        elif public_key_type == '_Ed25519PublicKey':
-            pass
-        elif public_key_type == '_X448PublicKey':
-            pass
-        elif public_key_type == '_X25519PublicKey':
-            pass
-        elif public_key_type == '_Ed448PublicKey':
-            pass
-        else:
-            raise UnsupportedPublicKeyAlgorithmException("Unsupported key type: %s" % public_key_type)
-
-        return signature_verifies_ok
+        return ocsp_stat, issuer_data, ocsp_data, issuer_cert
 
     async def _load_issuer_cert_async(self):
         ca_issuer_url = None
@@ -1023,10 +1003,11 @@ class CertChecker:
             for interim_issuer_cert in interim_certificates:
                 public_key = interim_issuer_cert.public_key()
                 public_key_type = public_key.__class__.__name__
-                certificate_verifies_ok = self._verify_signature(public_key_type,
-                                                                 public_key,
-                                                                 self.cert.signature, self.cert.tbs_certificate_bytes,
-                                                                 self.cert.signature_hash_algorithm)
+                certificate_verifies_ok = CryptoSignature.verify_signature(public_key_type,
+                                                                           public_key,
+                                                                           self.cert.signature,
+                                                                           self.cert.tbs_certificate_bytes,
+                                                                           self.cert.signature_hash_algorithm)
                 if certificate_verifies_ok:
                     issuer_cert = interim_issuer_cert
                     break
