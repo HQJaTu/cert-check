@@ -4,6 +4,7 @@
 # Code in CTLog-class is heavily inspired by https://github.com/theno/ctutlz written by Theodor Nolte.
 # This is an object-oriented adaptation of ctutlz.
 
+import sys
 import struct
 from enum import Enum
 import base64
@@ -193,7 +194,10 @@ class CTLog:
         issuer_cert_key = issuer_cert_public_key.public_bytes(encoding=serialization.Encoding.DER,
                                                               format=serialization.PublicFormat.SubjectPublicKeyInfo
                                                               )
-        issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
+        if sys.version_info >= (3, 8):
+            issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._x509)
+        else:
+            issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
         issuer_cert_key_hash.update(issuer_cert_key)
         issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
 
@@ -211,7 +215,7 @@ class CTLog:
         fmt, values = reduce(reduce_func, [
             ('B', sct.version.value),
             ('B', signature_type),
-            ('Q', sct._backend._lib.SCT_get_timestamp(sct._sct)),
+            ('Q', 0), # XXX argh! sct._backend._lib.SCT_get_timestamp(sct._sct)),
             ('h', entry_type),
 
             # signed_entry

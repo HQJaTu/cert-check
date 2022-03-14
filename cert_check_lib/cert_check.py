@@ -20,6 +20,7 @@ __version__ = '0.4'
 __license__ = 'GPLv2'
 __banner__ = 'cert_check_lib v%s (%s)' % (__version__, __git__)
 
+import sys
 from OpenSSL import crypto  # pip3 install pyOpenSSL
 from OpenSSL._util import (
     ffi as _ffi,
@@ -144,7 +145,12 @@ class CertChecker:
     def do_load_pem_from_file(certfile):
         st_cert = open(certfile, 'rb').read()
 
-        certificate = x509_openssl_backend.load_pem_x509_certificate(st_cert)
+        if sys.version_info >= (3, 8):
+            # onwards 3.9
+            certificate = x509.load_pem_x509_certificate(st_cert)
+        else:
+            # up to 3.8
+            certificate = x509_openssl_backend.load_pem_x509_certificate(st_cert)
 
         return certificate
 
@@ -521,14 +527,23 @@ class CertChecker:
                     'entry_type': sct.entry_type,
                     'tls_message_sign_algo': None,
                     'tls_message_sign_hash_type': None,
-                    'signature': sct._signature,
+                    'signature': None,
                     'log_desc': None
                 }
+                if sys.version_info >= (3, 8):
+                    # XXX Not known where to get the signature from
+                    pass
+                    #sct_entry['signature'] = sct._signature
+                else:
+                    sct_entry['signature'] = sct._signature
 
                 tbs_cert_bytes = CTLog._tbscert_bytes_without_ct(self.cert)
                 tbs_cert_length_3_bytes = len(tbs_cert_bytes).to_bytes(3, byteorder='big')
                 print("sct.version.val: %d" % sct.version.value) # sct.version.val
-                print("sct.timestamp: %s" % sct._backend._lib.SCT_get_timestamp(sct._sct))
+                if sys.version_info >= (3, 8):
+                    print("sct.timestamp: %s" % sct.timestamp)
+                else:
+                    print("sct.timestamp: %s" % sct._backend._lib.SCT_get_timestamp(sct._sct))
                 print("sct.extensions_len: %d" % 0) # XXX!
                 print("ee_cert lens: %d, %d, %d, %d" % (len(tbs_cert_bytes),
                                                         int(tbs_cert_length_3_bytes[0]),
@@ -537,7 +552,12 @@ class CertChecker:
                 #print(self.cert.tbs_certificate_bytes.hex())
                 print(tbs_cert_bytes.hex())
                 print("tbscert.len: %s" % '%ds' % len(tbs_cert_bytes))
-                print("sct.signature: %s" % sct._signature.hex()) # sct.signature.hex()
+                if sys.version_info >= (3, 8):
+                    # XXX Not known where to get the signature from
+                    pass
+                    #print("sct.signature: %s" % sct._signature.hex()) # sct.signature.hex()
+                else:
+                    print("sct.signature: %s" % sct._signature.hex()) # sct.signature.hex()
 
                 log = self.ct_logs.find_log(sct.log_id)
                 if log:
@@ -545,12 +565,18 @@ class CertChecker:
                     print("log.pubkey: %s" % log.pubkey()) # log.pubkey
                 sct_list.append(sct_entry)
 
-                issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
-                print(issuer_data['issuer_public_key'].hex())
-                issuer_cert_key_hash.update(issuer_data['issuer_public_key'])
-                issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
-                print("issuer_cert.pubkey_hash: %s" % issuer_cert_key_hash_bytes.hex())
-                print("signature_input: %s" % CTLog._create_signature_input_precert(self.cert, sct, issuer_cert).hex())
+                if issuer_cert:
+                    if sys.version_info >= (3, 8):
+                        issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._x509)
+                    else:
+                        issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
+                    print(issuer_data['issuer_public_key'].hex())
+                    issuer_cert_key_hash.update(issuer_data['issuer_public_key'])
+                    issuer_cert_key_hash_bytes = issuer_cert_key_hash.finalize()
+                    print("issuer_cert.pubkey_hash: %s" % issuer_cert_key_hash_bytes.hex())
+                    print("signature_input: %s" % CTLog._create_signature_input_precert(self.cert, sct, issuer_cert).hex())
+                else:
+                    print("No issuer cert.")
 
                 if self._can_get_sct_details:
                     print('Version: %s' % sct.version)
@@ -853,9 +879,15 @@ class CertChecker:
         # Make sure response issuer key hash matches target certificate issuer certificate key hash.
         # Debug: https://lapo.it/asn1js/ or https://holtstrom.com/michael/tools/asn1decoder.php will be handy
         if ocsp_data['hash_algorithm'].lower() == 'sha1':
-            issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._backend)
+            if sys.version_info >= (3, 8):
+                issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._x509)
+            else:
+                issuer_cert_key_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._backend)
         elif ocsp_data['hash_algorithm'].lower() == 'sha256':
-            issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
+            if sys.version_info >= (3, 8):
+                issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._x509)
+            else:
+                issuer_cert_key_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
         else:
             raise OCSPHashException(
                 "Cannot verify OCSP-response! Information hashed with a '%s' and I don't know how to handle it." %
@@ -878,9 +910,15 @@ class CertChecker:
         subject_bytes = cert_as_openssl_subject.der()
 
         if ocsp_data['hash_algorithm'].lower() == 'sha1':
-            subject_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._backend)
+            if sys.version_info >= (3, 8):
+                subject_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._x509)
+            else:
+                subject_hash = hashes.Hash(hashes.SHA1(), backend=issuer_cert._backend)
         elif ocsp_data['hash_algorithm'].lower() == 'sha256':
-            subject_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
+            if sys.version_info >= (3, 8):
+                subject_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._x509)
+            else:
+                subject_hash = hashes.Hash(hashes.SHA256(), backend=issuer_cert._backend)
         else:
             raise OCSPHashException(
                 "Cannot verify OCSP-response! Information hashed with a '%s' and I don't know how to handle it." %

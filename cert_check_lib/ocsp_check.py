@@ -2,6 +2,7 @@
 
 # SPDX-License-Identifier: GPL-2.0
 
+import sys
 from cryptography.x509 import ocsp
 from cryptography.hazmat.backends.openssl.backend import backend as x509_openssl_backend
 from cryptography.hazmat.primitives import serialization
@@ -103,7 +104,10 @@ class OcspChecker:
         if ocsp_status:
             # Docs, see: https://cryptography.io/en/latest/x509/ocsp/
             try:
-                ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response_content)
+                if sys.version_info >= (3, 8):
+                    ocsp_resp = ocsp.load_der_ocsp_response(response_content)
+                else:
+                    ocsp_resp = x509_openssl_backend.load_der_ocsp_response(response_content)
             except ValueError:
                 # This is ultra-rare, but it does happen.
                 ocsp_status = False
